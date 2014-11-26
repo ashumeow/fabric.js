@@ -2,8 +2,8 @@
 
   'use strict';
 
-  var fabric  = global.fabric || (global.fabric = { }),
-      piBy2   = Math.PI * 2,
+  var fabric = global.fabric || (global.fabric = { }),
+      pi = Math.PI,
       extend = fabric.util.object.extend;
 
   if (fabric.Circle) {
@@ -34,6 +34,20 @@
     radius: 0,
 
     /**
+     * Start angle of the circle, moving clockwise
+     * @type Number
+     * @default 0
+     */
+    startAngle: 0,
+
+    /**
+     * End angle of the circle
+     * @type Number
+     * @default 2Pi
+     */
+    endAngle: pi * 2,
+
+    /**
      * Constructor
      * @param {Object} [options] Options object
      * @return {fabric.Circle} thisArg
@@ -41,8 +55,10 @@
     initialize: function(options) {
       options = options || { };
 
-      this.set('radius', options.radius || 0);
       this.callSuper('initialize', options);
+      this.set('radius', options.radius || 0);
+      this.startAngle = options.startAngle || this.startAngle;
+      this.endAngle = options.endAngle || this.endAngle;
     },
 
     /**
@@ -68,7 +84,9 @@
      */
     toObject: function(propertiesToInclude) {
       return extend(this.callSuper('toObject', propertiesToInclude), {
-        radius: this.get('radius')
+        radius: this.get('radius'),
+        startAngle: this.startAngle,
+        endAngle: this.endAngle
       });
     },
 
@@ -79,16 +97,41 @@
      * @return {String} svg representation of an instance
      */
     toSVG: function(reviver) {
-      var markup = this._createBaseSVGMarkup();
+      var markup = this._createBaseSVGMarkup(), x = 0, y = 0,
+      angle = (this.endAngle - this.startAngle) % ( 2 * pi);
 
-      markup.push(
-        '<circle ',
-          'cx="0" cy="0" ',
-          'r="', this.radius,
+      if (angle === 0) {
+        if (this.group && this.group.type === 'path-group') {
+          x = this.left + this.radius;
+          y = this.top + this.radius;
+        }
+        markup.push(
+          '<circle ',
+            'cx="' + x + '" cy="' + y + '" ',
+            'r="', this.radius,
+            '" style="', this.getSvgStyles(),
+            '" transform="', this.getSvgTransform(),
+            ' ', this.getSvgTransformMatrix(),
+          '"/>\n'
+        );
+      }
+      else {
+        var startX = Math.cos(this.startAngle) * this.radius,
+            startY = Math.sin(this.startAngle) * this.radius,
+            endX = Math.cos(this.endAngle) * this.radius,
+            endY = Math.sin(this.endAngle) * this.radius,
+            largeFlag = angle > pi ? '1' : '0';
+
+        markup.push(
+          '<path d="M ' + startX + ' ' + startY,
+          ' A ' + this.radius + ' ' + this.radius,
+          ' 0 ', + largeFlag + ' 1', ' ' + endX + ' ' + endY,
           '" style="', this.getSvgStyles(),
           '" transform="', this.getSvgTransform(),
-        '"/>'
-      );
+          ' ', this.getSvgTransformMatrix(),
+          '"/>\n'
+        );
+      }
 
       return reviver ? reviver(markup.join('')) : markup.join('');
     },
@@ -96,17 +139,18 @@
 
     /**
      * @private
-     * @param ctx {CanvasRenderingContext2D} context to render on
+     * @param {CanvasRenderingContext2D} ctx context to render on
+     * @param {Boolean} [noTransform] When true, context is not transformed
      */
     _render: function(ctx, noTransform) {
       ctx.beginPath();
-      // multiply by currently set alpha (the one that was set by path group where this object is contained, for example)
-      ctx.globalAlpha = this.group ? (ctx.globalAlpha * this.opacity) : this.opacity;
-      ctx.arc(noTransform ? this.left : 0, noTransform ? this.top : 0, this.radius, 0, piBy2, false);
-      ctx.closePath();
-
+      ctx.arc(noTransform ? this.left + this.radius : 0,
+              noTransform ? this.top + this.radius : 0,
+              this.radius,
+              this.startAngle,
+              this.endAngle, false);
       this._renderFill(ctx);
-      this.stroke && this._renderStroke(ctx);
+      this._renderStroke(ctx);
     },
 
     /**
@@ -163,21 +207,20 @@
    */
   fabric.Circle.fromElement = function(element, options) {
     options || (options = { });
+
     var parsedAttributes = fabric.parseAttributes(element, fabric.Circle.ATTRIBUTE_NAMES);
+
     if (!isValidRadius(parsedAttributes)) {
       throw new Error('value of `r` attribute is required and can not be negative');
     }
-    if ('left' in parsedAttributes) {
-      parsedAttributes.left -= (options.width / 2) || 0;
-    }
-    if ('top' in parsedAttributes) {
-      parsedAttributes.top -= (options.height / 2) || 0;
-    }
+
+    parsedAttributes.left = parsedAttributes.left || 0;
+    parsedAttributes.top = parsedAttributes.top || 0;
+
     var obj = new fabric.Circle(extend(parsedAttributes, options));
 
-    obj.cx = parseFloat(element.getAttribute('cx')) || 0;
-    obj.cy = parseFloat(element.getAttribute('cy')) || 0;
-
+    obj.left -= obj.radius;
+    obj.top -= obj.radius;
     return obj;
   };
 

@@ -2,9 +2,11 @@
 
   var slice = Array.prototype.slice, emptyFunction = function() { },
 
-      IS_DONTENUM_BUGGY = (function(){
+      IS_DONTENUM_BUGGY = (function() {
         for (var p in { toString: 1 }) {
-          if (p === 'toString') return false;
+          if (p === 'toString') {
+            return false;
+          }
         }
         return true;
       })(),
@@ -58,8 +60,8 @@
   /**
    * Helper for creation of "classes".
    * @memberOf fabric.util
-   * @param parent optional "Class" to inherit from
-   * @param properties Properties shared by all instances of this class
+   * @param {Function} [parent] optional "Class" to inherit from
+   * @param {Object} [properties] Properties shared by all instances of this class
    *                  (be careful modifying objects defined here as this would affect all instances)
    */
   function createClass() {

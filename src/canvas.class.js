@@ -250,7 +250,7 @@
      * @return {Boolean} true if point is contained within an area of given object
      */
     containsPoint: function (e, target) {
-      var pointer = this.getPointer(e),
+      var pointer = this.getPointer(e, true),
           xy = this._normalizePointer(target, pointer);
 
       // http://www.geog.ubc.ca/courses/klink/gis.notes/ncgia/u32.html
@@ -268,11 +268,14 @@
           isObjectInGroup = (
             activeGroup &&
             object.type !== 'group' &&
-            activeGroup.contains(object));
+            activeGroup.contains(object)),
+          lt;
 
       if (isObjectInGroup) {
-        x -= activeGroup.left;
-        y -= activeGroup.top;
+        lt = new fabric.Point(activeGroup.left, activeGroup.top);
+        lt = fabric.util.transformPoint(lt, this.viewportTransform, true);
+        x -= lt.x;
+        y -= lt.y;
       }
       return { x: x, y: y };
     },
@@ -336,7 +339,9 @@
      * @param {fabric.Object} target
      */
     _shouldCenterTransform: function (e, target) {
-      if (!target) return;
+      if (!target) {
+        return;
+      }
 
       var t = this._currentTransform,
           centerTransform;
@@ -400,10 +405,12 @@
      * @param {fabric.Object} target
      */
     _setupCurrentTransform: function (e, target) {
-      if (!target) return;
+      if (!target) {
+        return;
+      }
 
       var pointer = this.getPointer(e),
-          corner = target._findTargetCorner(pointer),
+          corner = target._findTargetCorner(this.getPointer(e, true)),
           action = this._getActionFromCorner(target, corner),
           origin = this._getOriginFromCorner(target, corner);
 
@@ -441,8 +448,8 @@
     /**
      * Translates object by "setting" its left/top
      * @private
-     * @param x {Number} pointer's x coordinate
-     * @param y {Number} pointer's y coordinate
+     * @param {Number} x pointer's x coordinate
+     * @param {Number} y pointer's y coordinate
      */
     _translateObject: function (x, y) {
       var target = this._currentTransform.target;
@@ -458,18 +465,21 @@
     /**
      * Scales object by invoking its scaleX/scaleY methods
      * @private
-     * @param x {Number} pointer's x coordinate
-     * @param y {Number} pointer's y coordinate
-     * @param by {String} Either 'x' or 'y' - specifies dimension constraint by which to scale an object.
+     * @param {Number} x pointer's x coordinate
+     * @param {Number} y pointer's y coordinate
+     * @param {String} by Either 'x' or 'y' - specifies dimension constraint by which to scale an object.
      *                    When not provided, an object is scaled by both dimensions equally
      */
     _scaleObject: function (x, y, by) {
       var t = this._currentTransform,
           target = t.target,
           lockScalingX = target.get('lockScalingX'),
-          lockScalingY = target.get('lockScalingY');
+          lockScalingY = target.get('lockScalingY'),
+          lockScalingFlip = target.get('lockScalingFlip');
 
-      if (lockScalingX && lockScalingY) return;
+      if (lockScalingX && lockScalingY) {
+        return;
+      }
 
       // Get the constraint point
       var constraintPosition = target.translateToOriginPoint(target.getCenterPoint(), t.originX, t.originY),
@@ -478,7 +488,7 @@
       this._setLocalMouse(localMouse, t);
 
       // Actually scale the object
-      this._setObjectScale(localMouse, t, lockScalingX, lockScalingY, by);
+      this._setObjectScale(localMouse, t, lockScalingX, lockScalingY, by, lockScalingFlip);
 
       // Make sure the constraints apply
       target.setPositionByOrigin(constraintPosition, t.originX, t.originY);
@@ -487,32 +497,37 @@
     /**
      * @private
      */
-    _setObjectScale: function(localMouse, transform, lockScalingX, lockScalingY, by) {
-      var target = transform.target;
+    _setObjectScale: function(localMouse, transform, lockScalingX, lockScalingY, by, lockScalingFlip) {
+      var target = transform.target, forbidScalingX = false, forbidScalingY = false,
+          strokeWidth = target.stroke ? target.strokeWidth : 0;
 
-      transform.newScaleX = target.scaleX;
-      transform.newScaleY = target.scaleY;
+      transform.newScaleX = localMouse.x / (target.width + strokeWidth / 2);
+      transform.newScaleY = localMouse.y / (target.height + strokeWidth / 2);
+
+      if (lockScalingFlip && transform.newScaleX <= 0 && transform.newScaleX < target.scaleX) {
+        forbidScalingX = true;
+      }
+
+      if (lockScalingFlip && transform.newScaleY <= 0 && transform.newScaleY < target.scaleY) {
+        forbidScalingY = true;
+      }
 
       if (by === 'equally' && !lockScalingX && !lockScalingY) {
-        this._scaleObjectEqually(localMouse, target, transform);
+        forbidScalingX || forbidScalingY || this._scaleObjectEqually(localMouse, target, transform);
       }
       else if (!by) {
-        transform.newScaleX = localMouse.x / (target.width + target.strokeWidth);
-        transform.newScaleY = localMouse.y / (target.height + target.strokeWidth);
-
-        lockScalingX || target.set('scaleX', transform.newScaleX);
-        lockScalingY || target.set('scaleY', transform.newScaleY);
+        forbidScalingX || lockScalingX || target.set('scaleX', transform.newScaleX);
+        forbidScalingY || lockScalingY || target.set('scaleY', transform.newScaleY);
       }
       else if (by === 'x' && !target.get('lockUniScaling')) {
-        transform.newScaleX = localMouse.x / (target.width + target.strokeWidth);
-        lockScalingX || target.set('scaleX', transform.newScaleX);
+        forbidScalingX || lockScalingX || target.set('scaleX', transform.newScaleX);
       }
       else if (by === 'y' && !target.get('lockUniScaling')) {
-        transform.newScaleY = localMouse.y / (target.height + target.strokeWidth);
-        lockScalingY || target.set('scaleY', transform.newScaleY);
+        forbidScalingY || lockScalingY || target.set('scaleY', transform.newScaleY);
       }
 
-      this._flipObject(transform);
+      forbidScalingX || forbidScalingY || this._flipObject(transform, by);
+
     },
 
     /**
@@ -521,8 +536,9 @@
     _scaleObjectEqually: function(localMouse, target, transform) {
 
       var dist = localMouse.y + localMouse.x,
-          lastDist = (target.height + (target.strokeWidth)) * transform.original.scaleY +
-                     (target.width + (target.strokeWidth)) * transform.original.scaleX;
+          strokeWidth = target.stroke ? target.strokeWidth : 0,
+          lastDist = (target.height + (strokeWidth / 2)) * transform.original.scaleY +
+                     (target.width + (strokeWidth / 2)) * transform.original.scaleX;
 
       // We use transform.scaleX/Y instead of target.scaleX/Y
       // because the object may have a min scale and we'll loose the proportions
@@ -536,8 +552,8 @@
     /**
      * @private
      */
-    _flipObject: function(transform) {
-      if (transform.newScaleX < 0) {
+    _flipObject: function(transform, by) {
+      if (transform.newScaleX < 0 && by !== 'y') {
         if (transform.originX === 'left') {
           transform.originX = 'right';
         }
@@ -546,7 +562,7 @@
         }
       }
 
-      if (transform.newScaleY < 0) {
+      if (transform.newScaleY < 0 && by !== 'x') {
         if (transform.originY === 'top') {
           transform.originY = 'bottom';
         }
@@ -613,14 +629,16 @@
     /**
      * Rotates object by invoking its rotate method
      * @private
-     * @param x {Number} pointer's x coordinate
-     * @param y {Number} pointer's y coordinate
+     * @param {Number} x pointer's x coordinate
+     * @param {Number} y pointer's y coordinate
      */
     _rotateObject: function (x, y) {
 
       var t = this._currentTransform;
 
-      if (t.target.get('lockRotation')) return;
+      if (t.target.get('lockRotation')) {
+        return;
+      }
 
       var lastAngle = atan2(t.ey - t.top, t.ex - t.left),
           curAngle = atan2(y - t.top, x - t.left),
@@ -631,13 +649,15 @@
         angle = 360 + angle;
       }
 
-      t.target.angle = angle;
+      t.target.angle = angle % 360;
     },
 
     /**
-     * @private
+     * Set the cursor type of the canvas element
+     * @param {String} value Cursor type of the canvas element.
+     * @see http://www.w3.org/TR/css3-ui/#cursor
      */
-    _setCursor: function (value) {
+    setCursor: function (value) {
       this.upperCanvasEl.style.cursor = value;
     },
 
@@ -708,7 +728,7 @@
         this.lastRenderedObjectWithControlsAboveOverlay &&
         this.lastRenderedObjectWithControlsAboveOverlay.visible &&
         this.containsPoint(e, this.lastRenderedObjectWithControlsAboveOverlay) &&
-        this.lastRenderedObjectWithControlsAboveOverlay._findTargetCorner(this.getPointer(e)));
+        this.lastRenderedObjectWithControlsAboveOverlay._findTargetCorner(this.getPointer(e, true)));
     },
 
     /**
@@ -717,7 +737,9 @@
      * @param {Boolean} skipGroup when true, group is skipped and only objects are traversed through
      */
     findTarget: function (e, skipGroup) {
-      if (this.skipTargetFind) return;
+      if (this.skipTargetFind) {
+        return;
+      }
 
       if (this._isLastRenderedObject(e)) {
         return this.lastRenderedObjectWithControlsAboveOverlay;
@@ -731,6 +753,7 @@
 
       var target = this._searchPossibleTargets(e);
       this._fireOverOutEvents(target);
+
       return target;
     },
 
@@ -783,9 +806,8 @@
 
       // Cache all targets where their bounding box contains point.
       var target,
-          pointer = this.getPointer(e);
-
-      var i = this._objects.length;
+          pointer = this.getPointer(e, true),
+          i = this._objects.length;
 
       while (i--) {
         if (this._checkTarget(e, this._objects[i], pointer)){
@@ -803,30 +825,55 @@
      * @param {Event} e
      * @return {Object} object with "x" and "y" number values
      */
-    getPointer: function (e) {
-      var pointer = getPointer(e, this.upperCanvasEl),
-          bounds = this.upperCanvasEl.getBoundingClientRect(),
+    getPointer: function (e, ignoreZoom, upperCanvasEl) {
+      if (!upperCanvasEl) {
+        upperCanvasEl = this.upperCanvasEl;
+      }
+      var pointer = getPointer(e, upperCanvasEl),
+          bounds = upperCanvasEl.getBoundingClientRect(),
+          boundsWidth = bounds.width || 0,
+          boundsHeight = bounds.height || 0,
           cssScale;
 
-      if (bounds.width === 0 || bounds.height === 0) {
+      if (!boundsWidth || !boundsHeight ) {
+        if ('top' in bounds && 'bottom' in bounds) {
+          boundsHeight = Math.abs( bounds.top - bounds.bottom );
+        }
+        if ('right' in bounds && 'left' in bounds) {
+          boundsWidth = Math.abs( bounds.right - bounds.left );
+        }
+      }
+
+      this.calcOffset();
+
+      pointer.x = pointer.x - this._offset.left;
+      pointer.y = pointer.y - this._offset.top;
+      if (!ignoreZoom) {
+        pointer = fabric.util.transformPoint(
+          pointer,
+          fabric.util.invertTransform(this.viewportTransform)
+        );
+      }
+
+      if (boundsWidth === 0 || boundsHeight === 0) {
         // If bounds are not available (i.e. not visible), do not apply scale.
         cssScale = { width: 1, height: 1 };
       }
       else {
         cssScale = {
-          width: this.upperCanvasEl.width / bounds.width,
-          height: this.upperCanvasEl.height / bounds.height
+          width: upperCanvasEl.width / boundsWidth,
+          height: upperCanvasEl.height / boundsHeight
         };
       }
+
       return {
-        x: (pointer.x - this._offset.left) * cssScale.width,
-        y: (pointer.y - this._offset.top) * cssScale.height
+        x: pointer.x * cssScale.width,
+        y: pointer.y * cssScale.height
       };
     },
 
     /**
      * @private
-     * @param {HTMLElement|String} canvasEl Canvas element
      * @throws {CANVAS_INIT_ERROR} If canvas can not be initialized
      */
     _createUpperCanvas: function () {
@@ -854,8 +901,6 @@
 
     /**
      * @private
-     * @param {Number} width
-     * @param {Number} height
      */
     _initWrapperElement: function () {
       this.wrapperEl = fabric.util.wrapElement(this.lowerCanvasEl, 'div', {
@@ -871,7 +916,7 @@
 
     /**
      * @private
-     * @param {Element} element
+     * @param {HTMLElement} element canvas element to apply styles on
      */
     _applyCanvasStyle: function (element) {
       var width = this.getWidth() || element.width,
@@ -979,7 +1024,6 @@
     _setActiveGroup: function(group) {
       this._activeGroup = group;
       if (group) {
-        group.canvas = this;
         group.set('active', true);
       }
     },
@@ -1078,7 +1122,7 @@
      * @private
      */
     _drawGroupControls: function(ctx, activeGroup) {
-      this._drawControls(ctx, activeGroup, 'Group');
+      activeGroup._renderControls(ctx);
     },
 
     /**
@@ -1086,20 +1130,12 @@
      */
     _drawObjectsControls: function(ctx) {
       for (var i = 0, len = this._objects.length; i < len; ++i) {
-        if (!this._objects[i] || !this._objects[i].active) continue;
-        this._drawControls(ctx, this._objects[i], 'Object');
+        if (!this._objects[i] || !this._objects[i].active) {
+          continue;
+        }
+        this._objects[i]._renderControls(ctx);
         this.lastRenderedObjectWithControlsAboveOverlay = this._objects[i];
       }
-    },
-
-    /**
-     * @private
-     */
-    _drawControls: function(ctx, object, klass) {
-      ctx.save();
-      fabric[klass].prototype.transform.call(object, ctx);
-      object.drawBorders(ctx).drawControls(ctx);
-      ctx.restore();
     }
   });
 

@@ -36,24 +36,42 @@
     points: null,
 
     /**
+     * Minimum X from points values, necessary to offset points
+     * @type Number
+     * @default
+     */
+    minX: 0,
+
+    /**
+     * Minimum Y from points values, necessary to offset points
+     * @type Number
+     * @default
+     */
+    minY: 0,
+
+    /**
      * Constructor
      * @param {Array} points Array of points
      * @param {Object} [options] Options object
-     * @param {Boolean} [skipOffset] Whether points offsetting should be skipped
      * @return {fabric.Polygon} thisArg
      */
-    initialize: function(points, options, skipOffset) {
+    initialize: function(points, options) {
       options = options || { };
       this.points = points;
       this.callSuper('initialize', options);
-      this._calcDimensions(skipOffset);
+      this._calcDimensions();
+      if (!('top' in options)) {
+        this.top = this.minY;
+      }
+      if (!('left' in options)) {
+        this.left = this.minX;
+      }
     },
 
     /**
      * @private
-     * @param {Boolean} [skipOffset] Whether points offsetting should be skipped
      */
-    _calcDimensions: function(skipOffset) {
+    _calcDimensions: function() {
 
       var points = this.points,
           minX = min(points, 'x'),
@@ -64,18 +82,19 @@
       this.width = (maxX - minX) || 1;
       this.height = (maxY - minY) || 1;
 
-      this.minX = minX;
+      this.minX = minX,
       this.minY = minY;
+    },
 
-      if (skipOffset) return;
-
-      var halfWidth = this.width / 2 + this.minX,
-          halfHeight = this.height / 2 + this.minY;
-
+    /**
+     * @private
+     */
+    _applyPointOffset: function() {
       // change points to offset polygon into a bounding box
+      // executed one time
       this.points.forEach(function(p) {
-        p.x -= halfWidth;
-        p.y -= halfHeight;
+        p.x -= (this.minX + this.width / 2);
+        p.y -= (this.minY + this.height / 2);
       }, this);
     },
 
@@ -105,11 +124,12 @@
       }
 
       markup.push(
-        '<polygon ',
+        '<', this.type, ' ',
           'points="', points.join(''),
           '" style="', this.getSvgStyles(),
           '" transform="', this.getSvgTransform(),
-        '"/>'
+          ' ', this.getSvgTransformMatrix(),
+        '"/>\n'
       );
 
       return reviver ? reviver(markup.join('')) : markup.join('');
@@ -121,13 +141,7 @@
      * @param {CanvasRenderingContext2D} ctx Context to render on
      */
     _render: function(ctx) {
-      var point;
-      ctx.beginPath();
-      ctx.moveTo(this.points[0].x, this.points[0].y);
-      for (var i = 0, len = this.points.length; i < len; i++) {
-        point = this.points[i];
-        ctx.lineTo(point.x, point.y);
-      }
+      this.commonRender(ctx);
       this._renderFill(ctx);
       if (this.stroke || this.strokeDashArray) {
         ctx.closePath();
@@ -139,15 +153,30 @@
      * @private
      * @param {CanvasRenderingContext2D} ctx Context to render on
      */
-    _renderDashedStroke: function(ctx) {
-      var p1, p2;
-
+    commonRender: function(ctx) {
+      var point;
       ctx.beginPath();
-      for (var i = 0, len = this.points.length; i < len; i++) {
-        p1 = this.points[i];
-        p2 = this.points[i + 1] || this.points[0];
-        fabric.util.drawDashedLine(ctx, p1.x, p1.y, p2.x, p2.y, this.strokeDashArray);
+
+      if (this._applyPointOffset) {
+        if (!(this.group && this.group.type === 'path-group')) {
+          this._applyPointOffset();
+        }
+        this._applyPointOffset = null;
       }
+
+      ctx.moveTo(this.points[0].x, this.points[0].y);
+      for (var i = 0, len = this.points.length; i < len; i++) {
+        point = this.points[i];
+        ctx.lineTo(point.x, point.y);
+      }
+    },
+
+    /**
+     * @private
+     * @param {CanvasRenderingContext2D} ctx Context to render on
+     */
+    _renderDashedStroke: function(ctx) {
+      fabric.Polyline.prototype._renderDashedStroke.call(this, ctx);
       ctx.closePath();
     },
 
@@ -181,14 +210,17 @@
     if (!element) {
       return null;
     }
+
     options || (options = { });
 
     var points = fabric.parsePointsAttribute(element.getAttribute('points')),
         parsedAttributes = fabric.parseAttributes(element, fabric.Polygon.ATTRIBUTE_NAMES);
 
-    fabric.util.normalizePoints(points, options);
+    if (points === null) {
+      return null;
+    }
 
-    return new fabric.Polygon(points, extend(parsedAttributes, options), true);
+    return new fabric.Polygon(points, extend(parsedAttributes, options));
   };
   /* _FROM_SVG_END_ */
 
@@ -196,7 +228,7 @@
    * Returns fabric.Polygon instance from an object representation
    * @static
    * @memberOf fabric.Polygon
-   * @param object {Object} object Object to create an instance from
+   * @param {Object} object Object to create an instance from
    * @return {fabric.Polygon} Instance of fabric.Polygon
    */
   fabric.Polygon.fromObject = function(object) {

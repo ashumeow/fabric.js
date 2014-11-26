@@ -61,10 +61,11 @@
      * @private
      */
     _tick: function() {
+      if (this._abortCursorAnimation) {
+        return;
+      }
 
       var _this = this;
-
-      if (this._abortCursorAnimation) return;
 
       this.animate('_currentCursorOpacity', 1, {
 
@@ -88,7 +89,9 @@
      * @private
      */
     _onTickComplete: function() {
-      if (this._abortCursorAnimation) return;
+      if (this._abortCursorAnimation) {
+        return;
+      }
 
       var _this = this;
       if (this._cursorTimeout1) {
@@ -156,6 +159,7 @@
     selectAll: function() {
       this.selectionStart = 0;
       this.selectionEnd = this.text.length;
+      this.fire('selection:changed');
       this.canvas && this.canvas.fire('text:selection:changed', { target: this });
     },
 
@@ -215,7 +219,8 @@
 
     /**
      * Find new selection index representing start of current line according to current selection index
-     * @param {Number} current selection index
+     * @param {Number} startFrom Current selection index
+     * @return {Number} New selection index
      */
     findLineBoundaryLeft: function(startFrom) {
       var offset = 0, index = startFrom - 1;
@@ -230,7 +235,8 @@
 
     /**
      * Find new selection index representing end of current line according to current selection index
-     * @param {Number} current selection index
+     * @param {Number} startFrom Current selection index
+     * @return {Number} New selection index
      */
     findLineBoundaryRight: function(startFrom) {
       var offset = 0, index = startFrom;
@@ -263,6 +269,7 @@
      * Finds index corresponding to beginning or end of a word
      * @param {Number} selectionStart Index of a character
      * @param {Number} direction: 1 or -1
+     * @return {Number} Index of the beginning or end of a word
      */
     searchWordBoundary: function(selectionStart, direction) {
       var index = this._reSpace.test(this.text.charAt(selectionStart)) ? selectionStart - 1 : selectionStart,
@@ -311,7 +318,9 @@
      * @chainable
      */
     enterEditing: function() {
-      if (this.isEditing || !this.editable) return;
+      if (this.isEditing || !this.editable) {
+        return;
+      }
 
       this.exitEditingOnOthers();
 
@@ -360,7 +369,9 @@
      * @private
      */
     _updateTextarea: function() {
-      if (!this.hiddenTextarea) return;
+      if (!this.hiddenTextarea) {
+        return;
+      }
 
       this.hiddenTextarea.value = this.text;
       this.hiddenTextarea.selectionStart = this.selectionStart;
@@ -385,7 +396,9 @@
      * @private
      */
     _restoreEditingProps: function() {
-      if (!this._savedProps) return;
+      if (!this._savedProps) {
+        return;
+      }
 
       this.hoverCursor = this._savedProps.overCursor;
       this.hasControls = this._savedProps.hasControls;
@@ -569,9 +582,7 @@
      * @param {Array} [styles] Styles to insert
      */
     insertStyleObjects: function(_chars, isEndOfLine, styles) {
-
-      // short-circuit
-      if (this.isEmptyStyles()) return;
+      // removed shortcircuit over isEmptyStyles
 
       var cursorLocation = this.get2DCursorLocation(),
           lineIndex = cursorLocation.lineIndex,

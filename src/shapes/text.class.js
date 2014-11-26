@@ -319,7 +319,6 @@
       this.setOptions(options);
       this.__skipDimension = false;
       this._initDimensions();
-      this.setCoords();
     },
 
     /**
@@ -327,7 +326,9 @@
      * @private
      */
     _initDimensions: function() {
-      if (this.__skipDimension) return;
+      if (this.__skipDimension) {
+        return;
+      }
       var canvasEl = fabric.util.createCanvasElement();
       this._render(canvasEl.getContext('2d'));
     },
@@ -347,14 +348,6 @@
      */
     _render: function(ctx) {
 
-      var isInPathGroup = this.group && this.group.type === 'path-group';
-      if (isInPathGroup && !this.transformMatrix) {
-        ctx.translate(-this.group.width/2 + this.left, -this.group.height / 2 + this.top);
-      }
-      else if (isInPathGroup && this.transformMatrix) {
-        ctx.translate(-this.group.width/2, -this.group.height/2);
-      }
-
       if (typeof Cufon === 'undefined' || this.useNative === true) {
         this._renderViaNative(ctx);
       }
@@ -369,8 +362,6 @@
      */
     _renderViaNative: function(ctx) {
       var textLines = this.text.split(this._reNewline);
-
-      this.transform(ctx, fabric.isLikelyNode);
 
       this._setTextStyles(ctx);
 
@@ -400,9 +391,12 @@
      */
     _renderText: function(ctx, textLines) {
       ctx.save();
+      this._setOpacity(ctx);
       this._setShadow(ctx);
+      this._setupCompositeOperation(ctx);
       this._renderTextFill(ctx, textLines);
       this._renderTextStroke(ctx, textLines);
+      this._restoreCompositeOperation(ctx);
       this._removeShadow(ctx);
       ctx.restore();
     },
@@ -485,7 +479,7 @@
      * @private
      * @param {String} method Method name ("fillText" or "strokeText")
      * @param {CanvasRenderingContext2D} ctx Context to render on
-     * @param {String} line Chars to render
+     * @param {String} chars Chars to render
      * @param {Number} left Left position of text
      * @param {Number} top Top position of text
      */
@@ -539,9 +533,6 @@
      * @return {Number} Left offset
      */
     _getLeftOffset: function() {
-      if (fabric.isLikelyNode) {
-        return 0;
-      }
       return -this.width / 2;
     },
 
@@ -559,7 +550,9 @@
      * @param {Array} textLines Array of all text lines
      */
     _renderTextFill: function(ctx, textLines) {
-      if (!this.fill && !this._skipFillStrokeCheck) return;
+      if (!this.fill && !this._skipFillStrokeCheck) {
+        return;
+      }
 
       this._boundaries = [ ];
       var lineHeights = 0;
@@ -577,6 +570,9 @@
           i
         );
       }
+      if (this.shadow && !this.shadow.affectStroke) {
+        this._removeShadow(ctx);
+      }
     },
 
     /**
@@ -585,7 +581,9 @@
      * @param {Array} textLines Array of all text lines
      */
     _renderTextStroke: function(ctx, textLines) {
-      if (!this.stroke && !this._skipFillStrokeCheck) return;
+      if ((!this.stroke || this.strokeWidth === 0) && !this._skipFillStrokeCheck) {
+        return;
+      }
 
       var lineHeights = 0;
 
@@ -635,7 +633,9 @@
      * @param {CanvasRenderingContext2D} ctx Context to render on
      */
     _renderTextBoxBackground: function(ctx) {
-      if (!this.backgroundColor) return;
+      if (!this.backgroundColor) {
+        return;
+      }
 
       ctx.save();
       ctx.fillStyle = this.backgroundColor;
@@ -656,7 +656,9 @@
      * @param {Array} textLines Array of all text lines
      */
     _renderTextLinesBackground: function(ctx, textLines) {
-      if (!this.textBackgroundColor) return;
+      if (!this.textBackgroundColor) {
+        return;
+      }
 
       ctx.save();
       ctx.fillStyle = this.textBackgroundColor;
@@ -712,7 +714,9 @@
      * @param {Array} textLines Array of all text lines
      */
     _renderTextDecoration: function(ctx, textLines) {
-      if (!this.textDecoration) return;
+      if (!this.textDecoration) {
+        return;
+      }
 
       // var halfOfVerticalBox = this.originY === 'top' ? 0 : this._getTextHeight(ctx, textLines) / 2;
       var halfOfVerticalBox = this._getTextHeight(ctx, textLines) / 2,
@@ -760,22 +764,30 @@
     /**
      * Renders text instance on a specified context
      * @param {CanvasRenderingContext2D} ctx Context to render on
-     * @param {Boolean} [noTransform] When true, context is not transformed
      */
     render: function(ctx, noTransform) {
       // do not render if object is not visible
-      if (!this.visible) return;
+      if (!this.visible) {
+        return;
+      }
 
       ctx.save();
-      var m = this.transformMatrix;
-      if (m && (!this.group || this.group.type === 'path-group')) {
-        ctx.transform(m[0], m[1], m[2], m[3], m[4], m[5]);
+      if (!noTransform) {
+        this.transform(ctx);
+      }
+
+      var isInPathGroup = this.group && this.group.type === 'path-group';
+
+      if (isInPathGroup) {
+        ctx.translate(-this.group.width/2, -this.group.height/2);
+      }
+      if (this.transformMatrix) {
+        ctx.transform.apply(ctx, this.transformMatrix);
+      }
+      if (isInPathGroup) {
+        ctx.translate(this.left, this.top);
       }
       this._render(ctx);
-      if (!noTransform && this.active) {
-        this.drawBorders(ctx);
-        this.drawControls(ctx);
-      }
       ctx.restore();
     },
 
@@ -835,12 +847,12 @@
 
           textLeft = -(this.width/2),
           textTop = this.useNative
-            ? this.fontSize - 1
+            ? (this.fontSize * this.lineHeight - 0.25 * this.fontSize) // to lift by 1  / 4 of font height.
             : (this.height/2) - (textLines.length * this.fontSize) - this._totalLineHeight;
 
       return {
-        textLeft: textLeft,
-        textTop: textTop,
+        textLeft: textLeft + (this.group && this.group.type === 'path-group' ? this.left : 0),
+        textTop: textTop + (this.group && this.group.type === 'path-group' ? this.top : 0),
         lineTop: lineTop
       };
     },
@@ -850,10 +862,10 @@
      */
     _wrapSVGTextAndBg: function(markup, textAndBg, shadowSpans, offsets) {
       markup.push(
-        '<g transform="', this.getSvgTransform(), '">',
+        '<g transform="', this.getSvgTransform(), this.getSvgTransformMatrix(), '">\n',
           textAndBg.textBgRects.join(''),
           '<text ',
-            (this.fontFamily ? 'font-family="' + this.fontFamily.replace(/"/g,'\'') + '" ': ''),
+            (this.fontFamily ? 'font-family="' + this.fontFamily.replace(/"/g, '\'') + '" ': ''),
             (this.fontSize ? 'font-size="' + this.fontSize + '" ': ''),
             (this.fontStyle ? 'font-style="' + this.fontStyle + '" ': ''),
             (this.fontWeight ? 'font-weight="' + this.fontWeight + '" ': ''),
@@ -863,8 +875,8 @@
             'transform="translate(', toFixed(offsets.textLeft, 2), ' ', toFixed(offsets.textTop, 2), ')">',
             shadowSpans.join(''),
             textAndBg.textSpans.join(''),
-          '</text>',
-        '</g>'
+          '</text>\n',
+        '</g>\n'
       );
     },
 
@@ -936,7 +948,9 @@
           lineTopOffsetMultiplier++;
         }
 
-        if (!this.textBackgroundColor || !this._boundaries) continue;
+        if (!this.textBackgroundColor || !this._boundaries) {
+          continue;
+        }
 
         this._setSVGTextLineBg(textBgRects, i, textLeftOffset, lineHeight);
       }
@@ -980,7 +994,7 @@
           toFixed(this._boundaries[i].width, 2),
           '" height="',
           toFixed(this._boundaries[i].height, 2),
-        '"></rect>');
+        '"></rect>\n');
     },
 
     _setSVGBg: function(textBgRects) {
@@ -1078,6 +1092,8 @@
     var parsedAttributes = fabric.parseAttributes(element, fabric.Text.ATTRIBUTE_NAMES);
     options = fabric.util.object.extend((options ? fabric.util.object.clone(options) : { }), parsedAttributes);
 
+    options.top = options.top || 0;
+    options.left = options.left || 0;
     if ('dx' in parsedAttributes) {
       options.left += parsedAttributes.dx;
     }
@@ -1089,19 +1105,25 @@
     }
 
     if (!options.originX) {
-      options.originX = 'center';
+      options.originX = 'left';
     }
+    options.top += options.fontSize / 4;
+    var text = new fabric.Text(element.textContent, options),
+        /*
+          Adjust positioning:
+            x/y attributes in SVG correspond to the bottom-left corner of text bounding box
+            top/left properties in Fabric correspond to center point of text bounding box
+        */
+        offX = 0;
 
-    var text = new fabric.Text(element.textContent, options);
-
-    /*
-      Adjust positioning:
-        x/y attributes in SVG correspond to the bottom-left corner of text bounding box
-        top/left properties in Fabric correspond to center point of text bounding box
-    */
-
+    if (text.originX === 'left') {
+      offX = text.getWidth() / 2;
+    }
+    if (text.originX === 'right') {
+      offX = -text.getWidth() / 2;
+    }
     text.set({
-      left: text.getLeft() + text.getWidth() / 2,
+      left: text.getLeft() + offX,
       top: text.getTop() - text.getHeight() / 2
     });
 
@@ -1113,7 +1135,7 @@
    * Returns fabric.Text instance from an object representation
    * @static
    * @memberOf fabric.Text
-   * @param object {Object} object Object to create an instance from
+   * @param {Object} object Object to create an instance from
    * @return {fabric.Text} Instance of fabric.Text
    */
   fabric.Text.fromObject = function(object) {

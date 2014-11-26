@@ -63,7 +63,7 @@
     /**
      * Adds value to this point
      * @param {Number} scalar
-     * @param {fabric.Point} thisArg
+     * @return {fabric.Point} thisArg
      */
     scalarAddEquals: function (scalar) {
       this.x += scalar;
@@ -256,7 +256,7 @@
     /**
      * Sets x/y of this point
      * @param {Number} x
-     * @return {Number} y
+     * @param {Number} y
      */
     setXY: function (x, y) {
       this.x = x;

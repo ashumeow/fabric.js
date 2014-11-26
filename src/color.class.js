@@ -44,7 +44,7 @@
       }
 
       if (color === 'transparent') {
-        this.setSource([255,255,255,0]);
+        this.setSource([255, 255, 255, 0]);
         return;
       }
 
@@ -313,7 +313,7 @@
    * @param {Number} t
    * @return {Number}
    */
-  function hue2rgb(p, q, t){
+  function hue2rgb(p, q, t) {
     if (t < 0) {
       t += 1;
     }
@@ -394,7 +394,9 @@
    */
   fabric.Color.sourceFromHsl = function(color) {
     var match = color.match(Color.reHSLa);
-    if (!match) return;
+    if (!match) {
+      return;
+    }
 
     var h = (((parseFloat(match[1]) % 360) + 360) % 360) / 360,
         s = parseFloat(match[2]) / (/%$/.test(match[2]) ? 100 : 1),

@@ -116,12 +116,12 @@
 
       element = element.parentNode;
 
-      if (element !== fabric.document &&
+      if (element.nodeType === 1 &&
           fabric.util.getElementStyle(element, 'position') === 'fixed') {
         firstFixedAncestor = element;
       }
 
-      if (element !== fabric.document &&
+      if (element.nodeType === 1 &&
           origElement !== upperCanvasEl &&
           fabric.util.getElementStyle(element, 'position') === 'absolute') {
         left = 0;
@@ -191,7 +191,8 @@
   var getElementStyle;
   if (fabric.document.defaultView && fabric.document.defaultView.getComputedStyle) {
     getElementStyle = function(element, attr) {
-      return fabric.document.defaultView.getComputedStyle(element, null)[attr];
+      var style = fabric.document.defaultView.getComputedStyle(element, null);
+      return style ? style[attr] : undefined;
     };
   }
   else {
@@ -276,7 +277,9 @@
         if (loading) {
           if (typeof this.readyState === 'string' &&
               this.readyState !== 'loaded' &&
-              this.readyState !== 'complete') return;
+              this.readyState !== 'complete') {
+            return;
+          }
           loading = false;
           callback(e || fabric.window.event);
           scriptEl = scriptEl.onload = scriptEl.onreadystatechange = null;

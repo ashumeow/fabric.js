@@ -12,6 +12,7 @@
       capitalize = fabric.util.string.capitalize,
       clone = fabric.util.object.clone,
       toFixed = fabric.util.toFixed,
+      parseUnit = fabric.util.parseUnit,
       multiplyTransformMatrices = fabric.util.multiplyTransformMatrices,
 
       attributesMap = {
@@ -44,6 +45,9 @@
         fill:   'fillOpacity'
       };
 
+  fabric.cssRules = { };
+  fabric.gradientDefs = { };
+
   function normalizeAttr(attr) {
     // transform attribute names
     if (attr in attributesMap) {
@@ -52,17 +56,17 @@
     return attr;
   }
 
-  function normalizeValue(attr, value, parentAttributes) {
-    var isArray;
+  function normalizeValue(attr, value, parentAttributes, fontSize) {
+    var isArray = Object.prototype.toString.call(value) === '[object Array]',
+        parsed;
 
     if ((attr === 'fill' || attr === 'stroke') && value === 'none') {
       value = '';
     }
-    else if (attr === 'fillRule') {
-      value = (value === 'evenodd') ? 'destination-over' : value;
-    }
     else if (attr === 'strokeDashArray') {
-      value = value.replace(/,/g, ' ').split(/\s+/);
+      value = value.replace(/,/g, ' ').split(/\s+/).map(function(n) {
+        return parseFloat(n);
+      });
     }
     else if (attr === 'transformMatrix') {
       if (parentAttributes && parentAttributes.transformMatrix) {
@@ -76,18 +80,16 @@
     else if (attr === 'visible') {
       value = (value === 'none' || value === 'hidden') ? false : true;
       // display=none on parent element always takes precedence over child element
-      if (parentAttributes.visible === false) {
+      if (parentAttributes && parentAttributes.visible === false) {
         value = false;
       }
     }
     else if (attr === 'originX' /* text-anchor */) {
       value = value === 'start' ? 'left' : value === 'end' ? 'right' : 'center';
     }
-
-    isArray = Object.prototype.toString.call(value) === '[object Array]';
-
-    // TODO: need to normalize em, %, pt, etc. to px (!)
-    var parsed = isArray ? value.map(parseFloat) : parseFloat(value);
+    else {
+      parsed = isArray ? value.map(parseUnit) : parseUnit(value, fontSize);
+    }
 
     return (!isArray && isNaN(parsed) ? value : parsed);
   }
@@ -99,14 +101,16 @@
   function _setStrokeFillOpacity(attributes) {
     for (var attr in colorAttributes) {
 
-      if (!attributes[attr] || typeof attributes[colorAttributes[attr]] === 'undefined') continue;
+      if (!attributes[attr] || typeof attributes[colorAttributes[attr]] === 'undefined') {
+        continue;
+      }
 
-      if (attributes[attr].indexOf('url(') === 0) continue;
+      if (attributes[attr].indexOf('url(') === 0) {
+        continue;
+      }
 
       var color = new fabric.Color(attributes[attr]);
       attributes[attr] = color.setAlpha(toFixed(color.getAlpha() * attributes[colorAttributes[attr]], 2)).toRgba();
-
-      delete attributes[colorAttributes[attr]];
     }
     return attributes;
   }
@@ -138,11 +142,11 @@
     }
 
     function skewXMatrix(matrix, args) {
-      matrix[2] = args[0];
+      matrix[2] = Math.tan(fabric.util.degreesToRadians(args[0]));
     }
 
     function skewYMatrix(matrix, args) {
-      matrix[1] = args[0];
+      matrix[1] = Math.tan(fabric.util.degreesToRadians(args[0]));
     }
 
     function translateMatrix(matrix, args) {
@@ -163,7 +167,7 @@
         ],
 
         // == begin transform regexp
-        number = '(?:[-+]?(?:\\d+|\\d*\\.\\d+)(?:e[-+]?\\d+)?)',
+        number = fabric.reNum,
 
         commaWsp = '(?:\\s+,?\\s*|,\\s*)',
 
@@ -266,38 +270,6 @@
     };
   })();
 
-  function parseFontDeclaration(value, oStyle) {
-
-    // TODO: support non-px font size
-    var match = value.match(/(normal|italic)?\s*(normal|small-caps)?\s*(normal|bold|bolder|lighter|100|200|300|400|500|600|700|800|900)?\s*(\d+)px(?:\/(normal|[\d\.]+))?\s+(.*)/);
-
-    if (!match) return;
-
-    var fontStyle = match[1],
-        // font variant is not used
-        // fontVariant = match[2],
-        fontWeight = match[3],
-        fontSize = match[4],
-        lineHeight = match[5],
-        fontFamily = match[6];
-
-    if (fontStyle) {
-      oStyle.fontStyle = fontStyle;
-    }
-    if (fontWeight) {
-      oStyle.fontWeight = isNaN(parseFloat(fontWeight)) ? fontWeight : parseFloat(fontWeight);
-    }
-    if (fontSize) {
-      oStyle.fontSize = parseFloat(fontSize);
-    }
-    if (fontFamily) {
-      oStyle.fontFamily = fontFamily;
-    }
-    if (lineHeight) {
-      oStyle.lineHeight = lineHeight === 'normal' ? 1 : lineHeight;
-    }
-  }
-
   /**
    * @private
    */
@@ -309,12 +281,7 @@
       attr = normalizeAttr(pair[0].trim().toLowerCase());
       value = normalizeValue(attr, pair[1].trim());
 
-      if (attr === 'font') {
-        parseFontDeclaration(value, oStyle);
-      }
-      else {
-        oStyle[attr] = value;
-      }
+      oStyle[attr] = value;
     });
   }
 
@@ -324,42 +291,179 @@
   function parseStyleObject(style, oStyle) {
     var attr, value;
     for (var prop in style) {
-      if (typeof style[prop] === 'undefined') continue;
+      if (typeof style[prop] === 'undefined') {
+        continue;
+      }
 
       attr = normalizeAttr(prop.toLowerCase());
       value = normalizeValue(attr, style[prop]);
 
-      if (attr === 'font') {
-        parseFontDeclaration(value, oStyle);
-      }
-      else {
-        oStyle[attr] = value;
-      }
+      oStyle[attr] = value;
     }
   }
 
   /**
    * @private
    */
-  function getGlobalStylesForElement(element) {
-    var nodeName = element.nodeName,
-        className = element.getAttribute('class'),
-        id = element.getAttribute('id'),
-        styles = { };
-
-    for (var rule in fabric.cssRules) {
-      var ruleMatchesElement = (className && new RegExp('^\\.' + className).test(rule)) ||
-                               (id && new RegExp('^#' + id).test(rule)) ||
-                               (new RegExp('^' + nodeName).test(rule));
-
-      if (ruleMatchesElement) {
-        for (var property in fabric.cssRules[rule]) {
-          styles[property] = fabric.cssRules[rule][property];
+  function getGlobalStylesForElement(element, svgUid) {
+    var styles = { };
+    for (var rule in fabric.cssRules[svgUid]) {
+      if (elementMatchesRule(element, rule.split(' '))) {
+        for (var property in fabric.cssRules[svgUid][rule]) {
+          styles[property] = fabric.cssRules[svgUid][rule][property];
         }
       }
     }
-
     return styles;
+  }
+
+  /**
+   * @private
+   */
+  function elementMatchesRule(element, selectors) {
+    var firstMatching, parentMatching = true;
+    //start from rightmost selector.
+    firstMatching = selectorMatches(element, selectors.pop());
+    if (firstMatching && selectors.length) {
+      parentMatching = doesSomeParentMatch(element, selectors);
+    }
+    return firstMatching && parentMatching && (selectors.length === 0);
+  }
+
+  function doesSomeParentMatch(element, selectors) {
+    var selector, parentMatching = true;
+    while (element.parentNode && element.parentNode.nodeType === 1 && selectors.length) {
+      if (parentMatching) {
+        selector = selectors.pop();
+      }
+      element = element.parentNode;
+      parentMatching = selectorMatches(element, selector);
+    }
+    return selectors.length === 0;
+  }
+  /**
+   * @private
+   */
+  function selectorMatches(element, selector) {
+    var nodeName = element.nodeName,
+        classNames = element.getAttribute('class'),
+        id = element.getAttribute('id'), matcher;
+    // i check if a selector matches slicing away part from it.
+    // if i get empty string i should match
+    matcher = new RegExp('^' + nodeName, 'i');
+    selector = selector.replace(matcher, '');
+    if (id && selector.length) {
+      matcher = new RegExp('#' + id + '(?![a-zA-Z\\-]+)', 'i');
+      selector = selector.replace(matcher, '');
+    }
+    if (classNames && selector.length) {
+      classNames = classNames.split(' ');
+      for (var i = classNames.length; i--;) {
+        matcher = new RegExp('\\.' + classNames[i] + '(?![a-zA-Z\\-]+)', 'i');
+        selector = selector.replace(matcher, '');
+      }
+    }
+    return selector.length === 0;
+  }
+
+  /**
+   * @private
+   */
+  function parseUseDirectives(doc) {
+    var nodelist = doc.getElementsByTagName('use');
+    while (nodelist.length) {
+      var el = nodelist[0],
+          xlink = el.getAttribute('xlink:href').substr(1),
+          x = el.getAttribute('x') || 0,
+          y = el.getAttribute('y') || 0,
+          el2 = doc.getElementById(xlink).cloneNode(true),
+          currentTrans = (el2.getAttribute('transform') || '') + ' translate(' + x + ', ' + y + ')',
+          parentNode;
+
+      for (var j = 0, attrs = el.attributes, l = attrs.length; j < l; j++) {
+        var attr = attrs.item(j);
+        if (attr.nodeName === 'x' || attr.nodeName === 'y' || attr.nodeName === 'xlink:href') {
+          continue;
+        }
+
+        if (attr.nodeName === 'transform') {
+          currentTrans = attr.nodeValue + ' ' + currentTrans;
+        }
+        else {
+          el2.setAttribute(attr.nodeName, attr.nodeValue);
+        }
+      }
+
+      el2.setAttribute('transform', currentTrans);
+      el2.setAttribute('instantiated_by_use', '1');
+      el2.removeAttribute('id');
+      parentNode = el.parentNode;
+      parentNode.replaceChild(el2, el);
+    }
+  }
+
+  /**
+   * Add a <g> element that envelop all child elements and makes the viewbox transformMatrix descend on all elements
+   */
+  function addVBTransform(element, widthAttr, heightAttr) {
+
+    // http://www.w3.org/TR/SVG/coords.html#ViewBoxAttribute
+    // matches, e.g.: +14.56e-12, etc.
+    var reViewBoxAttrValue = new RegExp(
+          '^' +
+          '\\s*(' + fabric.reNum + '+)\\s*,?' +
+          '\\s*(' + fabric.reNum + '+)\\s*,?' +
+          '\\s*(' + fabric.reNum + '+)\\s*,?' +
+          '\\s*(' + fabric.reNum + '+)\\s*' +
+          '$'
+        ),
+        viewBoxAttr = element.getAttribute('viewBox'),
+        scaleX = 1, scaleY = 1, minX = 0, minY = 0,
+        viewBoxWidth, viewBoxHeight, matrix, el;
+
+    if (viewBoxAttr && (viewBoxAttr = viewBoxAttr.match(reViewBoxAttrValue))) {
+      minX = -parseFloat(viewBoxAttr[1]),
+      minY = -parseFloat(viewBoxAttr[2]),
+      viewBoxWidth = parseFloat(viewBoxAttr[3]),
+      viewBoxHeight = parseFloat(viewBoxAttr[4]);
+    }
+    else {
+      return;
+    }
+    if (widthAttr && widthAttr !== viewBoxWidth) {
+      scaleX = widthAttr / viewBoxWidth;
+    }
+    if (heightAttr && heightAttr !== viewBoxHeight) {
+      scaleY = heightAttr / viewBoxHeight;
+    }
+
+    // default is to preserve aspect ratio
+    // preserveAspectRatio attribute to be implemented
+    scaleY = scaleX = (scaleX > scaleY ? scaleY : scaleX);
+
+    if (!(scaleX !== 1 || scaleY !== 1 || minX !== 0 || minY !== 0)) {
+      return;
+    }
+    matrix = 'matrix(' + scaleX +
+                  ' 0' +
+                  ' 0 ' +
+                  scaleY + ' ' +
+                  (minX * scaleX) + ' ' +
+                  (minY * scaleY) + ')';
+
+    if (element.tagName === 'svg') {
+      el = element.ownerDocument.createElement('g');
+      while (element.firstChild != null) {
+        el.appendChild(element.firstChild);
+      }
+      element.appendChild(el);
+    }
+    else {
+      el = element;
+      matrix += el.getAttribute('transform');
+    }
+
+    el.setAttribute('transform', matrix);
   }
 
   /**
@@ -374,25 +478,11 @@
   fabric.parseSVGDocument = (function() {
 
     var reAllowedSVGTagNames = /^(path|circle|polygon|polyline|ellipse|rect|line|image|text)$/,
-
-        // http://www.w3.org/TR/SVG/coords.html#ViewBoxAttribute
-        // \d doesn't quite cut it (as we need to match an actual float number)
-
-        // matches, e.g.: +14.56e-12, etc.
-        reNum = '(?:[-+]?(?:\\d+|\\d*\\.\\d+)(?:e[-+]?\\d+)?)',
-
-        reViewBoxAttrValue = new RegExp(
-          '^' +
-          '\\s*(' + reNum + '+)\\s*,?' +
-          '\\s*(' + reNum + '+)\\s*,?' +
-          '\\s*(' + reNum + '+)\\s*,?' +
-          '\\s*(' + reNum + '+)\\s*' +
-          '$'
-        );
+        reViewBoxTagNames = /^(symbol|image|marker|pattern|view)$/;
 
     function hasAncestorWithNodeName(element, nodeName) {
       while (element && (element = element.parentNode)) {
-        if (nodeName.test(element.nodeName)) {
+        if (nodeName.test(element.nodeName) && !element.getAttribute('instantiated_by_use')) {
           return true;
         }
       }
@@ -400,10 +490,24 @@
     }
 
     return function(doc, callback, reviver) {
-      if (!doc) return;
+      if (!doc) {
+        return;
+      }
+
+      parseUseDirectives(doc);
 
       var startTime = new Date(),
-          descendants = fabric.util.toArray(doc.getElementsByTagName('*'));
+          svgUid =  fabric.Object.__uid++,
+      /* http://www.w3.org/TR/SVG/struct.html#SVGElementWidthAttribute
+      *  as per spec, width and height attributes are to be considered
+      *  100% if no value is specified.
+      */
+          widthAttr = parseUnit(doc.getAttribute('width') || '100%'),
+          heightAttr = parseUnit(doc.getAttribute('height') || '100%');
+
+      addVBTransform(doc, widthAttr, heightAttr);
+
+      var descendants = fabric.util.toArray(doc.getElementsByTagName('*'));
 
       if (descendants.length === 0 && fabric.isLikelyNode) {
         // we're likely in node, where "o3-xml" library fails to gEBTN("*")
@@ -417,8 +521,9 @@
       }
 
       var elements = descendants.filter(function(el) {
+        reViewBoxTagNames.test(el.tagName) && addVBTransform(el, 0, 0);
         return reAllowedSVGTagNames.test(el.tagName) &&
-              !hasAncestorWithNodeName(el, /^(?:pattern|defs)$/); // http://www.w3.org/TR/SVG/struct.html#DefsElement
+              !hasAncestorWithNodeName(el, /^(?:pattern|defs|symbol)$/); // http://www.w3.org/TR/SVG/struct.html#DefsElement
       });
 
       if (!elements || (elements && !elements.length)) {
@@ -426,45 +531,17 @@
         return;
       }
 
-      var viewBoxAttr = doc.getAttribute('viewBox'),
-          widthAttr = parseFloat(doc.getAttribute('width')),
-          heightAttr = parseFloat(doc.getAttribute('height')),
-          width = null,
-          height = null,
-          viewBoxWidth,
-          viewBoxHeight,
-          minX,
-          minY;
-
-      if (viewBoxAttr && (viewBoxAttr = viewBoxAttr.match(reViewBoxAttrValue))) {
-        minX = parseFloat(viewBoxAttr[1]);
-        minY = parseFloat(viewBoxAttr[2]);
-        viewBoxWidth = parseFloat(viewBoxAttr[3]);
-        viewBoxHeight = parseFloat(viewBoxAttr[4]);
-      }
-
-      if (viewBoxWidth && widthAttr && viewBoxWidth !== widthAttr) {
-        width = viewBoxWidth;
-        height = viewBoxHeight;
-      }
-      else {
-        // values of width/height attributes overwrite those extracted from viewbox attribute
-        width = widthAttr ? widthAttr : viewBoxWidth;
-        height = heightAttr ? heightAttr : viewBoxHeight;
-      }
-
       var options = {
-        width: width,
-        height: height,
+        width: widthAttr,
+        height: heightAttr,
         widthAttr: widthAttr,
-        heightAttr: heightAttr
+        heightAttr: heightAttr,
+        svgUid: svgUid
       };
 
-      fabric.gradientDefs = fabric.getGradientDefs(doc);
-      fabric.cssRules = fabric.getCSSRules(doc);
-
+      fabric.gradientDefs[svgUid] = fabric.getGradientDefs(doc);
+      fabric.cssRules[svgUid] = fabric.getCSSRules(doc);
       // Precedence of rules:   style > class > attribute
-
       fabric.parseElements(elements, function(instances) {
         fabric.documentParsingTime = new Date() - startTime;
         if (callback) {
@@ -478,46 +555,38 @@
     * Used for caching SVG documents (loaded via `fabric.Canvas#loadSVGFromURL`)
     * @namespace
     */
-   var svgCache = {
+  var svgCache = {
 
-     /**
-      * @param {String} name
-      * @param {Function} callback
-      */
-     has: function (name, callback) {
-       callback(false);
-     },
+    /**
+    * @param {String} name
+    * @param {Function} callback
+    */
+    has: function (name, callback) {
+      callback(false);
+    },
 
-     /**
-      * @param {String} url
-      * @param {Function} callback
-      */
-     get: function () {
-       /* NOOP */
-     },
+    get: function () {
+      /* NOOP */
+    },
 
-     /**
-      * @param {String} url
-      * @param {Object} object
-      */
-     set: function () {
-       /* NOOP */
-     }
-   };
+    set: function () {
+      /* NOOP */
+    }
+  };
 
   /**
    * @private
    */
   function _enlivenCachedObject(cachedObject) {
 
-   var objects = cachedObject.objects,
-       options = cachedObject.options;
+    var objects = cachedObject.objects,
+        options = cachedObject.options;
 
-   objects = objects.map(function (o) {
-     return fabric[capitalize(o.type)].fromObject(o);
-   });
+    objects = objects.map(function (o) {
+      return fabric[capitalize(o.type)].fromObject(o);
+    });
 
-   return ({ objects: objects, options: options });
+    return ({ objects: objects, options: options });
   }
 
   /**
@@ -540,23 +609,46 @@
   }
 
   extend(fabric, {
-
     /**
-     * Initializes gradients on instances, according to gradients parsed from a document
-     * @param {Array} instances
+     * Parses a short font declaration, building adding its properties to a style object
+     * @static
+     * @function
+     * @memberOf fabric
+     * @param {String} value font declaration
+     * @param {Object} oStyle definition
      */
-    resolveGradients: function(instances) {
-      for (var i = instances.length; i--; ) {
-        var instanceFillValue = instances[i].get('fill');
+    parseFontDeclaration: function(value, oStyle) {
+      var fontDeclaration = '(normal|italic)?\\s*(normal|small-caps)?\\s*'
+                            + '(normal|bold|bolder|lighter|100|200|300|400|500|600|700|800|900)?\\s*('
+                            + fabric.reNum
+                            + '(?:px|cm|mm|em|pt|pc|in)*)(?:\\/(normal|' + fabric.reNum + '))?\\s+(.*)',
+          match = value.match(fontDeclaration);
 
-        if (!(/^url\(/).test(instanceFillValue)) continue;
+      if (!match) {
+        return;
+      }
+      var fontStyle = match[1],
+          // font variant is not used
+          // fontVariant = match[2],
+          fontWeight = match[3],
+          fontSize = match[4],
+          lineHeight = match[5],
+          fontFamily = match[6];
 
-        var gradientId = instanceFillValue.slice(5, instanceFillValue.length - 1);
-
-        if (fabric.gradientDefs[gradientId]) {
-          instances[i].set('fill',
-            fabric.Gradient.fromElement(fabric.gradientDefs[gradientId], instances[i]));
-        }
+      if (fontStyle) {
+        oStyle.fontStyle = fontStyle;
+      }
+      if (fontWeight) {
+        oStyle.fontWeight = isNaN(parseFloat(fontWeight)) ? fontWeight : parseFloat(fontWeight);
+      }
+      if (fontSize) {
+        oStyle.fontSize = parseUnit(fontSize);
+      }
+      if (fontFamily) {
+        oStyle.fontFamily = fontFamily;
+      }
+      if (lineHeight) {
+        oStyle.lineHeight = lineHeight === 'normal' ? 1 : lineHeight;
       }
     },
 
@@ -571,21 +663,36 @@
     getGradientDefs: function(doc) {
       var linearGradientEls = doc.getElementsByTagName('linearGradient'),
           radialGradientEls = doc.getElementsByTagName('radialGradient'),
-          el, i,
-          gradientDefs = { };
+          el, i, j = 0, id, xlink, elList = [ ],
+          gradientDefs = { }, idsToXlinkMap = { };
 
+      elList.length = linearGradientEls.length + radialGradientEls.length;
       i = linearGradientEls.length;
-      for (; i--; ) {
-        el = linearGradientEls[i];
-        gradientDefs[el.getAttribute('id')] = el;
+      while (i--) {
+        elList[j++] = linearGradientEls[i];
       }
-
       i = radialGradientEls.length;
-      for (; i--; ) {
-        el = radialGradientEls[i];
-        gradientDefs[el.getAttribute('id')] = el;
+      while (i--) {
+        elList[j++] = radialGradientEls[i];
       }
 
+      while (j--) {
+        el = elList[j];
+        xlink = el.getAttribute('xlink:href');
+        id = el.getAttribute('id');
+        if (xlink) {
+          idsToXlinkMap[id] = xlink.substr(1);
+        }
+        gradientDefs[id] = el;
+      }
+
+      for (id in idsToXlinkMap) {
+        var el2 = gradientDefs[idsToXlinkMap[id]].cloneNode(true);
+        el = gradientDefs[id];
+        while (el2.firstChild) {
+          el.appendChild(el2.firstChild);
+        }
+      }
       return gradientDefs;
     },
 
@@ -598,25 +705,31 @@
      * @param {Array} attributes Array of attributes to parse
      * @return {Object} object containing parsed attributes' names/values
      */
-    parseAttributes: function(element, attributes) {
+    parseAttributes: function(element, attributes, svgUid) {
 
       if (!element) {
         return;
       }
 
       var value,
-          parentAttributes = { };
+          parentAttributes = { },
+          fontSize;
 
-      // if there's a parent container (`g` node), parse its attributes recursively upwards
-      if (element.parentNode && /^g$/i.test(element.parentNode.nodeName)) {
-        parentAttributes = fabric.parseAttributes(element.parentNode, attributes);
+      if (typeof svgUid === 'undefined') {
+        svgUid = element.getAttribute('svgUid');
       }
+      // if there's a parent container (`g` or `a` or `symbol` node), parse its attributes recursively upwards
+      if (element.parentNode && /^symbol|[g|a]$/i.test(element.parentNode.nodeName)) {
+        parentAttributes = fabric.parseAttributes(element.parentNode, attributes, svgUid);
+      }
+      fontSize = (parentAttributes && parentAttributes.fontSize ) ||
+                 element.getAttribute('font-size') || fabric.Text.DEFAULT_SVG_FONT_SIZE;
 
       var ownAttributes = attributes.reduce(function(memo, attr) {
         value = element.getAttribute(attr);
         if (value) {
           attr = normalizeAttr(attr);
-          value = normalizeValue(attr, value, parentAttributes);
+          value = normalizeValue(attr, value, parentAttributes, fontSize);
 
           memo[attr] = value;
         }
@@ -626,8 +739,10 @@
       // add values parsed from style, which take precedence over attributes
       // (see: http://www.w3.org/TR/SVG/styling.html#UsingPresentationAttributes)
       ownAttributes = extend(ownAttributes,
-        extend(getGlobalStylesForElement(element), fabric.parseStyleAttribute(element)));
-
+        extend(getGlobalStylesForElement(element, svgUid), fabric.parseStyleAttribute(element)));
+      if (ownAttributes.font) {
+        fabric.parseFontDeclaration(ownAttributes.font, ownAttributes);
+      }
       return _setStrokeFillOpacity(extend(parentAttributes, ownAttributes));
     },
 
@@ -673,41 +788,29 @@
      * Parses "points" attribute, returning an array of values
      * @static
      * @memberOf fabric
-     * @param points {String} points attribute string
+     * @param {String} points points attribute string
      * @return {Array} array of points
      */
     parsePointsAttribute: function(points) {
 
       // points attribute is required and must not be empty
-      if (!points) return null;
+      if (!points) {
+        return null;
+      }
 
-      points = points.trim();
-      var asPairs = points.indexOf(',') > -1;
+      // replace commas with whitespace and remove bookending whitespace
+      points = points.replace(/,/g, ' ').trim();
 
       points = points.split(/\s+/);
       var parsedPoints = [ ], i, len;
 
-      // points could look like "10,20 30,40" or "10 20 30 40"
-      if (asPairs) {
-        i = 0;
-        len = points.length;
-        for (; i < len; i++) {
-          var pair = points[i].split(',');
-          parsedPoints.push({
-            x: parseFloat(pair[0]),
-            y: parseFloat(pair[1])
-          });
-        }
-      }
-      else {
-        i = 0;
-        len = points.length;
-        for (; i < len; i+=2) {
-          parsedPoints.push({
-            x: parseFloat(points[i]),
-            y: parseFloat(points[i + 1])
-          });
-        }
+      i = 0;
+      len = points.length;
+      for (; i < len; i+=2) {
+        parsedPoints.push({
+          x: parseFloat(points[i]),
+          y: parseFloat(points[i + 1])
+        });
       }
 
       // odd number of points is an error
@@ -728,39 +831,42 @@
      */
     getCSSRules: function(doc) {
       var styles = doc.getElementsByTagName('style'),
-          allRules = { },
-          rules;
+          allRules = { }, rules;
 
       // very crude parsing of style contents
       for (var i = 0, len = styles.length; i < len; i++) {
-        var styleContents = styles[0].textContent;
+        var styleContents = styles[i].textContent;
 
         // remove comments
         styleContents = styleContents.replace(/\/\*[\s\S]*?\*\//g, '');
-
+        if (styleContents.trim() === '') {
+          continue;
+        }
         rules = styleContents.match(/[^{]*\{[\s\S]*?\}/g);
         rules = rules.map(function(rule) { return rule.trim(); });
 
         rules.forEach(function(rule) {
-          var match = rule.match(/([\s\S]*?)\s*\{([^}]*)\}/);
-          rule = match[1];
-          var declaration = match[2].trim(),
-              propertyValuePairs = declaration.replace(/;$/, '').split(/\s*;\s*/);
 
-          if (!allRules[rule]) {
-            allRules[rule] = { };
-          }
+          var match = rule.match(/([\s\S]*?)\s*\{([^}]*)\}/),
+          ruleObj = { }, declaration = match[2].trim(),
+          propertyValuePairs = declaration.replace(/;$/, '').split(/\s*;\s*/);
 
           for (var i = 0, len = propertyValuePairs.length; i < len; i++) {
             var pair = propertyValuePairs[i].split(/\s*:\s*/),
-                property = pair[0],
-                value = pair[1];
-
-            allRules[rule][property] = value;
+                property = normalizeAttr(pair[0]),
+                value = normalizeValue(property, pair[1], pair[0]);
+            ruleObj[property] = value;
           }
+          rule = match[1];
+          rule.split(',').forEach(function(_rule) {
+            _rule = _rule.replace(/^svg/i, '').trim();
+            if (_rule === '') {
+              return;
+            }
+            allRules[_rule] = fabric.util.object.clone(ruleObj);
+          });
         });
       }
-
       return allRules;
     },
 
@@ -774,7 +880,6 @@
     loadSVGFromURL: function(url, callback, reviver) {
 
       url = url.replace(/^\n\s*/, '').trim();
-
       svgCache.has(url, function (hasUrl) {
         if (hasUrl) {
           svgCache.get(url, function (value) {
@@ -797,9 +902,11 @@
           xml = new ActiveXObject('Microsoft.XMLDOM');
           xml.async = 'false';
           //IE chokes on DOCTYPE
-          xml.loadXML(r.responseText.replace(/<!DOCTYPE[\s\S]*?(\[[\s\S]*\])*?>/i,''));
+          xml.loadXML(r.responseText.replace(/<!DOCTYPE[\s\S]*?(\[[\s\S]*\])*?>/i, ''));
         }
-        if (!xml || !xml.documentElement) return;
+        if (!xml || !xml.documentElement) {
+          return;
+        }
 
         fabric.parseSVGDocument(xml.documentElement, function (results, options) {
           svgCache.set(url, {
@@ -830,8 +937,8 @@
       else if (fabric.window.ActiveXObject) {
         doc = new ActiveXObject('Microsoft.XMLDOM');
         doc.async = 'false';
-        //IE chokes on DOCTYPE
-        doc.loadXML(string.replace(/<!DOCTYPE[\s\S]*?(\[[\s\S]*\])*?>/i,''));
+        // IE chokes on DOCTYPE
+        doc.loadXML(string.replace(/<!DOCTYPE[\s\S]*?(\[[\s\S]*\])*?>/i, ''));
       }
 
       fabric.parseSVGDocument(doc.documentElement, function (results, options) {
@@ -848,23 +955,29 @@
       var markup = '';
 
       for (var i = 0, len = objects.length; i < len; i++) {
-        if (objects[i].type !== 'text' || !objects[i].path) continue;
+        if (objects[i].type !== 'text' || !objects[i].path) {
+          continue;
+        }
 
         markup += [
+          //jscs:disable validateIndentation
           '@font-face {',
             'font-family: ', objects[i].fontFamily, '; ',
             'src: url(\'', objects[i].path, '\')',
           '}'
+          //jscs:enable validateIndentation
         ].join('');
       }
 
       if (markup) {
         markup = [
+          //jscs:disable validateIndentation
           '<style type="text/css">',
             '<![CDATA[',
               markup,
             ']]>',
           '</style>'
+          //jscs:enable validateIndentation
         ].join('');
       }
 

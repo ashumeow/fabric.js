@@ -1,4 +1,4 @@
-(function(){
+(function() {
 
   var min = Math.min,
       max = Math.max;
@@ -83,6 +83,7 @@
       if (this._activeObject && target !== this._activeObject) {
 
         var group = this._createGroup(target);
+        group.addWithUpdate();
 
         this.setActiveGroup(group);
         this._activeObject = null;
@@ -106,8 +107,7 @@
             : [ target, this._activeObject ];
 
       return new fabric.Group(groupObjects, {
-        originX: 'center',
-        originY: 'center'
+        canvas: this
       });
     },
 
@@ -125,9 +125,9 @@
       }
       else if (group.length > 1) {
         group = new fabric.Group(group.reverse(), {
-          originX: 'center',
-          originY: 'center'
+          canvas: this
         });
+        group.addWithUpdate();
         this.setActiveGroup(group, e);
         group.saveCoords();
         this.fire('selection:created', { target: group });
@@ -152,7 +152,9 @@
       for (var i = this._objects.length; i--; ) {
         currentObject = this._objects[i];
 
-        if (!currentObject || !currentObject.selectable || !currentObject.visible) continue;
+        if (!currentObject || !currentObject.selectable || !currentObject.visible) {
+          continue;
+        }
 
         if (currentObject.intersectsWithRect(selectionX1Y1, selectionX2Y2) ||
             currentObject.isContainedWithinRect(selectionX1Y1, selectionX2Y2) ||
@@ -163,7 +165,9 @@
           group.push(currentObject);
 
           // only add one object if it's a click
-          if (isClick) break;
+          if (isClick) {
+            break;
+          }
         }
       }
 
@@ -182,7 +186,7 @@
       if (activeGroup) {
         activeGroup.setObjectsCoords().setCoords();
         activeGroup.isMoving = false;
-        this._setCursor(this.defaultCursor);
+        this.setCursor(this.defaultCursor);
       }
 
       // clear selection and current transformation

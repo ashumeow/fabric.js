@@ -3,6 +3,7 @@ fabric.ElementsParser = function(elements, callback, options, reviver) {
   this.callback = callback;
   this.options = options;
   this.reviver = reviver;
+  this.svgUid = (options && options.svgUid) || 0;
 };
 
 fabric.ElementsParser.prototype.parse = function() {
@@ -14,6 +15,7 @@ fabric.ElementsParser.prototype.parse = function() {
 
 fabric.ElementsParser.prototype.createObjects = function() {
   for (var i = 0, len = this.elements.length; i < len; i++) {
+    this.elements[i].setAttribute('svgUid', this.svgUid);
     (function(_this, i) {
       setTimeout(function() {
         _this.createObject(_this.elements[i], i);
@@ -43,8 +45,10 @@ fabric.ElementsParser.prototype._createObject = function(klass, el, index) {
   }
   else {
     var obj = klass.fromElement(el, this.options);
+    this.resolveGradient(obj, 'fill');
+    this.resolveGradient(obj, 'stroke');
     this.reviver && this.reviver(el, obj);
-    this.instances.splice(index, 0, obj);
+    this.instances[index] = obj;
     this.checkIfDone();
   }
 };
@@ -52,10 +56,25 @@ fabric.ElementsParser.prototype._createObject = function(klass, el, index) {
 fabric.ElementsParser.prototype.createCallback = function(index, el) {
   var _this = this;
   return function(obj) {
+    _this.resolveGradient(obj, 'fill');
+    _this.resolveGradient(obj, 'stroke');
     _this.reviver && _this.reviver(el, obj);
-    _this.instances.splice(index, 0, obj);
+    _this.instances[index] = obj;
     _this.checkIfDone();
   };
+};
+
+fabric.ElementsParser.prototype.resolveGradient = function(obj, property) {
+
+  var instanceFillValue = obj.get(property);
+  if (!(/^url\(/).test(instanceFillValue)) {
+    return;
+  }
+  var gradientId = instanceFillValue.slice(5, instanceFillValue.length - 1);
+  if (fabric.gradientDefs[this.svgUid][gradientId]) {
+    obj.set(property,
+      fabric.Gradient.fromElement(fabric.gradientDefs[this.svgUid][gradientId], obj));
+  }
 };
 
 fabric.ElementsParser.prototype.checkIfDone = function() {
@@ -63,7 +82,6 @@ fabric.ElementsParser.prototype.checkIfDone = function() {
     this.instances = this.instances.filter(function(el) {
       return el != null;
     });
-    fabric.resolveGradients(this.instances);
     this.callback(this.instances);
   }
 };

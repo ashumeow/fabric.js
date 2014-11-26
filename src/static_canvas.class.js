@@ -134,8 +134,21 @@
     imageSmoothingEnabled: true,
 
     /**
+     * Indicates whether objects should remain in current stack position when selected. When false objects are brought to top and rendered as part of the selection group
+     * @type Boolean
+     * @default
+     */
+    preserveObjectStacking: false,
+
+    /**
+     * The transformation (in the format of Canvas transform) which focuses the viewport
+     * @type Array
+     * @default
+     */
+    viewportTransform: [1, 0, 0, 1, 0, 0],
+
+    /**
      * Callback; invoked right before object is about to be scaled/rotated
-     * @param {fabric.Object} target Object that's about to be scaled/rotated
      */
     onBeforeScaleRotate: function () {
       /* NOOP */
@@ -215,6 +228,16 @@
      *   originX: 'left',
      *   originY: 'top'
      * });
+     * @example <caption>overlayImage loaded from cross-origin</caption>
+     * canvas.setOverlayImage('http://fabricjs.com/assets/jail_cell_bars.png', canvas.renderAll.bind(canvas), {
+     *   opacity: 0.5,
+     *   angle: 45,
+     *   left: 400,
+     *   top: 400,
+     *   originX: 'left',
+     *   originY: 'top',
+     *   crossOrigin: 'anonymous'
+     * });
      */
     setOverlayImage: function (image, callback, options) {
       return this.__setBgOverlayImage('overlayImage', image, callback, options);
@@ -255,6 +278,16 @@
      *   // Needed to position backgroundImage at 0/0
      *   originX: 'left',
      *   originY: 'top'
+     * });
+     * @example <caption>backgroundImage loaded from cross-origin</caption>
+     * canvas.setBackgroundImage('http://fabricjs.com/assets/honey_im_subtle.png', canvas.renderAll.bind(canvas), {
+     *   opacity: 0.5,
+     *   angle: 45,
+     *   left: 400,
+     *   top: 400,
+     *   originX: 'left',
+     *   originY: 'top',
+     *   crossOrigin: 'anonymous'
      * });
      */
     setBackgroundImage: function (image, callback, options) {
@@ -315,7 +348,7 @@
      * @private
      * @see {@link http://www.whatwg.org/specs/web-apps/current-work/multipage/the-canvas-element.html#dom-context-2d-imagesmoothingenabled|WhatWG Canvas Standard}
      */
-    _setImageSmoothing: function(){
+    _setImageSmoothing: function() {
       var ctx = this.getContext();
 
       ctx.imageSmoothingEnabled       = this.imageSmoothingEnabled;
@@ -329,7 +362,7 @@
      * @private
      * @param {String} property Property to set ({@link fabric.StaticCanvas#backgroundImage|backgroundImage}
      * or {@link fabric.StaticCanvas#overlayImage|overlayImage})
-     * @param {(fabric.Image|String)} image fabric.Image instance or URL of an image to set background or overlay to
+     * @param {(fabric.Image|String|null)} image fabric.Image instance, URL of an image or null to set background or overlay to
      * @param {Function} callback Callback to invoke when image is loaded and set as background or overlay
      * @param {Object} [options] Optional options to set for the {@link fabric.Image|image}.
      */
@@ -338,7 +371,7 @@
         fabric.util.loadImage(image, function(img) {
           this[property] = new fabric.Image(img, options);
           callback && callback();
-        }, this);
+        }, this, options && options.crossOrigin);
       }
       else {
         this[property] = image;
@@ -352,11 +385,11 @@
      * @private
      * @param {String} property Property to set ({@link fabric.StaticCanvas#backgroundColor|backgroundColor}
      * or {@link fabric.StaticCanvas#overlayColor|overlayColor})
-     * @param {(Object|String)} color Object with pattern information or color value
+     * @param {(Object|String|null)} color Object with pattern information, color value or null
      * @param {Function} [callback] Callback is invoked when color is set
      */
     __setBgOverlayColor: function(property, color, callback) {
-      if (color.source) {
+      if (color && color.source) {
         var _this = this;
         fabric.util.loadImage(color.source, function(img) {
           _this[property] = new fabric.Pattern({
@@ -415,13 +448,17 @@
       this.width = this.width || parseInt(this.lowerCanvasEl.width, 10) || 0;
       this.height = this.height || parseInt(this.lowerCanvasEl.height, 10) || 0;
 
-      if (!this.lowerCanvasEl.style) return;
+      if (!this.lowerCanvasEl.style) {
+        return;
+      }
 
       this.lowerCanvasEl.width = this.width;
       this.lowerCanvasEl.height = this.height;
 
       this.lowerCanvasEl.style.width = this.width + 'px';
       this.lowerCanvasEl.style.height = this.height + 'px';
+
+      this.viewportTransform = this.viewportTransform.slice();
     },
 
     /**
@@ -460,36 +497,65 @@
 
     /**
      * Sets width of this canvas instance
-     * @param {Number} width value to set width to
+     * @param {Number|String} value                         Value to set width to
+     * @param {Object}        [options]                     Options object
+     * @param {Boolean}       [options.backstoreOnly=false] Set the given dimensions only as canvas backstore dimensions
+     * @param {Boolean}       [options.cssOnly=false]       Set the given dimensions only as css dimensions
      * @return {fabric.Canvas} instance
      * @chainable true
      */
-    setWidth: function (value) {
-      return this._setDimension('width', value);
+    setWidth: function (value, options) {
+      return this.setDimensions({ width: value }, options);
     },
 
     /**
      * Sets height of this canvas instance
-     * @param {Number} height value to set height to
+     * @param {Number|String} value                         Value to set height to
+     * @param {Object}        [options]                     Options object
+     * @param {Boolean}       [options.backstoreOnly=false] Set the given dimensions only as canvas backstore dimensions
+     * @param {Boolean}       [options.cssOnly=false]       Set the given dimensions only as css dimensions
      * @return {fabric.Canvas} instance
      * @chainable true
      */
-    setHeight: function (value) {
-      return this._setDimension('height', value);
+    setHeight: function (value, options) {
+      return this.setDimensions({ height: value }, options);
     },
 
     /**
-     * Sets dimensions (width, height) of this canvas instance
-     * @param {Object} dimensions Object with width/height properties
-     * @param {Number} [dimensions.width] Width of canvas element
-     * @param {Number} [dimensions.height] Height of canvas element
+     * Sets dimensions (width, height) of this canvas instance. when options.cssOnly flag active you should also supply the unit of measure (px/%/em)
+     * @param {Object}        dimensions                    Object with width/height properties
+     * @param {Number|String} [dimensions.width]            Width of canvas element
+     * @param {Number|String} [dimensions.height]           Height of canvas element
+     * @param {Object}        [options]                     Options object
+     * @param {Boolean}       [options.backstoreOnly=false] Set the given dimensions only as canvas backstore dimensions
+     * @param {Boolean}       [options.cssOnly=false]       Set the given dimensions only as css dimensions
      * @return {fabric.Canvas} thisArg
      * @chainable
      */
-    setDimensions: function(dimensions) {
+    setDimensions: function (dimensions, options) {
+      var cssValue;
+
+      options = options || {};
+
       for (var prop in dimensions) {
-        this._setDimension(prop, dimensions[prop]);
+        cssValue = dimensions[prop];
+
+        if (!options.cssOnly) {
+          this._setBackstoreDimension(prop, dimensions[prop]);
+          cssValue += 'px';
+        }
+
+        if (!options.backstoreOnly) {
+          this._setCssDimension(prop, cssValue);
+        }
       }
+
+      if (!options.cssOnly) {
+        this.renderAll();
+      }
+
+      this.calcOffset();
+
       return this;
     },
 
@@ -501,29 +567,128 @@
      * @return {fabric.Canvas} instance
      * @chainable true
      */
-    _setDimension: function (prop, value) {
+    _setBackstoreDimension: function (prop, value) {
       this.lowerCanvasEl[prop] = value;
-      this.lowerCanvasEl.style[prop] = value + 'px';
 
       if (this.upperCanvasEl) {
         this.upperCanvasEl[prop] = value;
-        this.upperCanvasEl.style[prop] = value + 'px';
       }
 
       if (this.cacheCanvasEl) {
         this.cacheCanvasEl[prop] = value;
       }
 
-      if (this.wrapperEl) {
-        this.wrapperEl.style[prop] = value + 'px';
-      }
-
       this[prop] = value;
 
-      this.calcOffset();
-      this.renderAll();
+      return this;
+    },
+
+    /**
+     * Helper for setting css width/height
+     * @private
+     * @param {String} prop property (width|height)
+     * @param {String} value value to set property to
+     * @return {fabric.Canvas} instance
+     * @chainable true
+     */
+    _setCssDimension: function (prop, value) {
+      this.lowerCanvasEl.style[prop] = value;
+
+      if (this.upperCanvasEl) {
+        this.upperCanvasEl.style[prop] = value;
+      }
+
+      if (this.wrapperEl) {
+        this.wrapperEl.style[prop] = value;
+      }
 
       return this;
+    },
+
+    /**
+     * Returns canvas zoom level
+     * @return {Number}
+     */
+    getZoom: function () {
+      return Math.sqrt(this.viewportTransform[0] * this.viewportTransform[3]);
+    },
+
+    /**
+     * Sets viewport transform of this canvas instance
+     * @param {Array} vpt the transform in the form of context.transform
+     * @return {fabric.Canvas} instance
+     * @chainable true
+     */
+    setViewportTransform: function (vpt) {
+      this.viewportTransform = vpt;
+      this.renderAll();
+      for (var i = 0, len = this._objects.length; i < len; i++) {
+        this._objects[i].setCoords();
+      }
+      return this;
+    },
+
+    /**
+     * Sets zoom level of this canvas instance, zoom centered around point
+     * @param {fabric.Point} point to zoom with respect to
+     * @param {Number} value to set zoom to, less than 1 zooms out
+     * @return {fabric.Canvas} instance
+     * @chainable true
+     */
+    zoomToPoint: function (point, value) {
+      // TODO: just change the scale, preserve other transformations
+      var before = point;
+      point = fabric.util.transformPoint(point, fabric.util.invertTransform(this.viewportTransform));
+      this.viewportTransform[0] = value;
+      this.viewportTransform[3] = value;
+      var after = fabric.util.transformPoint(point, this.viewportTransform);
+      this.viewportTransform[4] += before.x - after.x;
+      this.viewportTransform[5] += before.y - after.y;
+      this.renderAll();
+      for (var i = 0, len = this._objects.length; i < len; i++) {
+        this._objects[i].setCoords();
+      }
+      return this;
+    },
+
+    /**
+     * Sets zoom level of this canvas instance
+     * @param {Number} value to set zoom to, less than 1 zooms out
+     * @return {fabric.Canvas} instance
+     * @chainable true
+     */
+    setZoom: function (value) {
+      this.zoomToPoint(new fabric.Point(0, 0), value);
+      return this;
+    },
+
+    /**
+     * Pan viewport so as to place point at top left corner of canvas
+     * @param {fabric.Point} point to move to
+     * @return {fabric.Canvas} instance
+     * @chainable true
+     */
+    absolutePan: function (point) {
+      this.viewportTransform[4] = -point.x;
+      this.viewportTransform[5] = -point.y;
+      this.renderAll();
+      for (var i = 0, len = this._objects.length; i < len; i++) {
+        this._objects[i].setCoords();
+      }
+      return this;
+    },
+
+    /**
+     * Pans viewpoint relatively
+     * @param {fabric.Point} point (position vector) to move by
+     * @return {fabric.Canvas} instance
+     * @chainable true
+     */
+    relativePan: function (point) {
+      return this.absolutePan(new fabric.Point(
+        -point.x - this.viewportTransform[4],
+        -point.y - this.viewportTransform[5]
+      ));
     },
 
     /**
@@ -557,18 +722,27 @@
      * @private
      */
     _draw: function (ctx, object) {
-      if (!object) return;
+      if (!object) {
+        return;
+      }
 
-      if (this.controlsAboveOverlay) {
-        var hasBorders = object.hasBorders, hasControls = object.hasControls;
-        object.hasBorders = object.hasControls = false;
-        object.render(ctx);
-        object.hasBorders = hasBorders;
-        object.hasControls = hasControls;
-      }
-      else {
+      ctx.save();
+      var v = this.viewportTransform;
+      ctx.transform(v[0], v[1], v[2], v[3], v[4], v[5]);
+      if (this._shouldRenderObject(object)) {
         object.render(ctx);
       }
+      ctx.restore();
+      if (!this.controlsAboveOverlay) {
+        object._renderControls(ctx);
+      }
+    },
+
+    _shouldRenderObject: function(object) {
+      if (!object) {
+        return false;
+      }
+      return (object !== this.getActiveGroup() || !this.preserveObjectStacking);
     },
 
     /**
@@ -577,8 +751,8 @@
      */
     _onObjectAdded: function(obj) {
       this.stateful && obj.setupState();
-      obj.setCoords();
       obj.canvas = this;
+      obj.setCoords();
       this.fire('object:added', { target: obj });
       obj.fire('added');
     },
@@ -647,7 +821,6 @@
      * @chainable
      */
     renderAll: function (allOnTop) {
-
       var canvasToDrawOn = this[(allOnTop === true && this.interactive) ? 'contextTop' : 'contextContainer'],
           activeGroup = this.getActiveGroup();
 
@@ -693,7 +866,7 @@
       var i, length;
 
       // fast path
-      if (!activeGroup) {
+      if (!activeGroup || this.preserveObjectStacking) {
         for (i = 0, length = this._objects.length; i < length; ++i) {
           this._draw(ctx, this._objects[i]);
         }
@@ -746,7 +919,7 @@
           this.height);
       }
       if (this.backgroundImage) {
-        this.backgroundImage.render(ctx);
+        this._draw(ctx, this.backgroundImage);
       }
     },
 
@@ -767,7 +940,7 @@
           this.height);
       }
       if (this.overlayImage) {
-        this.overlayImage.render(ctx);
+        this._draw(ctx, this.overlayImage);
       }
     },
 
@@ -923,7 +1096,6 @@
         }
       }
 
-
       return data;
     },
 
@@ -979,6 +1151,14 @@
     },
 
     /* _TO_SVG_START_ */
+    /**
+     * When true, getSvgTransform() will apply the StaticCanvas.viewportTransform to the SVG transformation. When true,
+     * a zoomed canvas will then produce zoomed SVG output.
+     * @type Boolean
+     * @default
+     */
+    svgViewportTransformation: true,
+
     /**
      * Returns SVG representation of canvas
      * @function
@@ -1052,13 +1232,29 @@
      * @private
      */
     _setSVGHeader: function(markup, options) {
+      var width, height, vpt;
+
+      if (options.viewBox) {
+        width = options.viewBox.width;
+        height = options.viewBox.height;
+      }
+      else {
+        width = this.width;
+        height = this.height;
+        if (!this.svgViewportTransformation) {
+          vpt = this.viewportTransform;
+          width /= vpt[0];
+          height /= vpt[3];
+        }
+      }
+
       markup.push(
         '<svg ',
           'xmlns="http://www.w3.org/2000/svg" ',
           'xmlns:xlink="http://www.w3.org/1999/xlink" ',
           'version="1.1" ',
-          'width="', (options.viewBox ? options.viewBox.width : this.width), '" ',
-          'height="', (options.viewBox ? options.viewBox.height : this.height), '" ',
+          'width="', width, '" ',
+          'height="', height, '" ',
           (this.backgroundColor && !this.backgroundColor.toLive
             ? 'style="background-color: ' + this.backgroundColor + '" '
             : null),
@@ -1312,7 +1508,7 @@
      * Provides a way to check support of some of the canvas methods
      * (either those of HTMLCanvasElement itself, or rendering context)
      *
-     * @param methodName {String} Method to check support for;
+     * @param {String} methodName Method to check support for;
      *                            Could be one of "getImageData", "toDataURL", "toDataURLWithQuality" or "setLineDash"
      * @return {Boolean | null} `true` if method is supported (or at least exists),
      *                          `null` if canvas element or context can not be initialized

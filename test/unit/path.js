@@ -1,32 +1,34 @@
 (function() {
 
   var REFERENCE_PATH_OBJECT = {
-    'type':               'path',
-    'originX':            'left',
-    'originY':            'top',
-    'left':               200,
-    'top':                200,
-    'width':              200,
-    'height':             200,
-    'fill':               'red',
-    'stroke':             'blue',
-    'strokeWidth':        1,
-    'strokeDashArray':    null,
-    'strokeLineCap':      'butt',
-    'strokeLineJoin':     'miter',
-    'strokeMiterLimit':   10,
-    'scaleX':             1,
-    'scaleY':             1,
-    'angle':              0,
-    'flipX':              false,
-    'flipY':              false,
-    'opacity':            1,
-    'path':               [['M', 100, 100], ['L', 300, 100], ['L', 200, 300], ['z']],
-    'pathOffset':         { x: 100, y: 100 },
-    'shadow':             null,
-    'visible':            true,
-    'backgroundColor':    '',
-    'clipTo':             null
+    'type':                     'path',
+    'originX':                  'left',
+    'originY':                  'top',
+    'left':                     100,
+    'top':                      100,
+    'width':                    200,
+    'height':                   200,
+    'fill':                     'red',
+    'stroke':                   'blue',
+    'strokeWidth':              1,
+    'strokeDashArray':          null,
+    'strokeLineCap':            'butt',
+    'strokeLineJoin':           'miter',
+    'strokeMiterLimit':         10,
+    'scaleX':                   1,
+    'scaleY':                   1,
+    'angle':                    0,
+    'flipX':                    false,
+    'flipY':                    false,
+    'opacity':                  1,
+    'path':                     [['M', 100, 100], ['L', 300, 100], ['L', 200, 300], ['z']],
+    'pathOffset':               { x: 200, y: 200 },
+    'shadow':                   null,
+    'visible':                  true,
+    'backgroundColor':          '',
+    'clipTo':                   null,
+    'fillRule':                 'nonzero',
+    'globalCompositeOperation': 'source-over'
   };
 
   function getPathElement(path) {
@@ -76,7 +78,7 @@
   asyncTest('toString', function() {
     makePathObject(function(path) {
       ok(typeof path.toString == 'function');
-      equal(path.toString(), '#<fabric.Path (4): { "top": 200, "left": 200 }>');
+      equal(path.toString(), '#<fabric.Path (4): { "top": 100, "left": 100 }>');
       start();
     });
   });
@@ -207,6 +209,34 @@
         deepEqual(obj.path[1], ['c', 53.25603, 0, 96.42857, 43.17254, 96.42857, 96.42857]);
         start();
       });
+    });
+  });
+
+  asyncTest('multiple M/m coordinates converted to L/l', function() {
+    var el = getPathElement('M100 100 200 200 150 50 m 300 300 400 -50 50 100');
+    fabric.Path.fromElement(el, function(obj) {
+
+      deepEqual(obj.path[0], ['M', 100, 100]);
+      deepEqual(obj.path[1], ['L', 200, 200]);
+      deepEqual(obj.path[2], ['L', 150, 50]);
+      deepEqual(obj.path[3], ['m', 300, 300]);
+      deepEqual(obj.path[4], ['l', 400, -50]);
+      deepEqual(obj.path[5], ['l', 50, 100]);
+      start();
+    });
+  });
+
+  asyncTest('multiple M/m commands preserved as M/m commands', function() {
+    var el = getPathElement('M100 100 M 200 200 M150 50 m 300 300 m 400 -50 m 50 100');
+    fabric.Path.fromElement(el, function(obj) {
+
+      deepEqual(obj.path[0], ['M', 100, 100]);
+      deepEqual(obj.path[1], ['M', 200, 200]);
+      deepEqual(obj.path[2], ['M', 150, 50]);
+      deepEqual(obj.path[3], ['m', 300, 300]);
+      deepEqual(obj.path[4], ['m', 400, -50]);
+      deepEqual(obj.path[5], ['m', 50, 100]);
+      start();
     });
   });
 

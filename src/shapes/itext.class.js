@@ -3,14 +3,16 @@
   var clone = fabric.util.object.clone;
 
    /**
-    * IText class (introduced in <b>v1.4</b>)
+    * IText class (introduced in <b>v1.4</b>) Events are also fired with "text:"
+    * prefix when observing canvas.
     * @class fabric.IText
     * @extends fabric.Text
     * @mixes fabric.Observable
     *
-    * @fires changed ("text:changed" when observing canvas)
-    * @fires editing:entered ("text:editing:entered" when observing canvas)
-    * @fires editing:exited ("text:editing:exited" when observing canvas)
+    * @fires changed
+    * @fires selection:changed
+    * @fires editing:entered
+    * @fires editing:exited
     *
     * @return {fabric.IText} thisArg
     * @see {@link fabric.IText#initialize} for constructor definition
@@ -199,7 +201,9 @@
      * Returns true if object has no styling
      */
     isEmptyStyles: function() {
-      if (!this.styles) return true;
+      if (!this.styles) {
+        return true;
+      }
       var obj = this.styles;
 
       for (var p1 in obj) {
@@ -219,6 +223,7 @@
      */
     setSelectionStart: function(index) {
       if (this.selectionStart !== index) {
+        this.fire('selection:changed');
         this.canvas && this.canvas.fire('text:selection:changed', { target: this });
       }
       this.selectionStart = index;
@@ -231,6 +236,7 @@
      */
     setSelectionEnd: function(index) {
       if (this.selectionEnd !== index) {
+        this.fire('selection:changed');
         this.canvas && this.canvas.fire('text:selection:changed', { target: this });
       }
       this.selectionEnd = index;
@@ -309,7 +315,9 @@
      * Renders cursor or selection (depending on what exists)
      */
     renderCursorOrSelection: function() {
-      if (!this.active) return;
+      if (!this.active) {
+        return;
+      }
 
       var chars = this.text.split(''),
           boundaries;
@@ -356,6 +364,8 @@
         textBackgroundColor: style && style.textBackgroundColor || this.textBackgroundColor,
         textDecoration: style && style.textDecoration || this.textDecoration,
         fontFamily: style && style.fontFamily || this.fontFamily,
+        fontWeight: style && style.fontWeight || this.fontWeight,
+        fontStyle: style && style.fontStyle || this.fontStyle,
         stroke: style && style.stroke || this.stroke,
         strokeWidth: style && style.strokeWidth || this.strokeWidth
       };
@@ -403,7 +413,7 @@
           // leftOffset/topOffset are offset from that left/top point of a text box
 
           left = Math.round(this._getLeftOffset()),
-          top = -this.height / 2,
+          top = this._getTopOffset(),
 
           offsets = this._getCursorBoundariesOffsets(
                       chars, typeOfBoundaries, cursorLocation, textLines);
@@ -629,7 +639,9 @@
      * @private
      * @param {String} method
      * @param {CanvasRenderingContext2D} ctx Context to render on
-     * @param {String} line
+     * @param {String} line Content of the line
+     * @param {Number} left Left coordinate
+     * @param {Number} top Top coordinate
      */
     _renderCharsFast: function(method, ctx, line, left, top) {
       this.skipTextAlign = false;
@@ -644,7 +656,14 @@
 
     /**
      * @private
+     * @param {String} method
      * @param {CanvasRenderingContext2D} ctx Context to render on
+     * @param {Number} lineIndex
+     * @param {Number} i
+     * @param {String} _char
+     * @param {Number} left Left coordinate
+     * @param {Number} top Top coordinate
+     * @param {Number} lineHeight Height of the line
      */
     _renderChar: function(method, ctx, lineIndex, i, _char, left, top, lineHeight) {
       var decl, charWidth, charHeight;
@@ -695,6 +714,8 @@
               prevStyle.textBackgroundColor !== thisStyle.textBackgroundColor ||
               prevStyle.textDecoration !== thisStyle.textDecoration ||
               prevStyle.fontFamily !== thisStyle.fontFamily ||
+              prevStyle.fontWeight !== thisStyle.fontWeight ||
+              prevStyle.fontStyle !== thisStyle.fontStyle ||
               prevStyle.stroke !== thisStyle.stroke ||
               prevStyle.strokeWidth !== thisStyle.strokeWidth
       );
@@ -712,7 +733,9 @@
 
           fontSize = (styleDeclaration ? styleDeclaration.fontSize : null) || this.fontSize;
 
-      if (!textDecoration) return;
+      if (!textDecoration) {
+        return;
+      }
 
       if (textDecoration.indexOf('underline') > -1) {
         this._renderCharDecorationAtOffset(
@@ -783,7 +806,9 @@
      * @param {Array} textLines Array of all text lines
      */
     _renderTextLinesBackground: function(ctx, textLines) {
-      if (!this.textBackgroundColor && !this.styles) return;
+      if (!this.textBackgroundColor && !this.styles) {
+        return;
+      }
 
       ctx.save();
 
@@ -946,6 +971,10 @@
      * @param {CanvasRenderingContext2D} ctx Context to render on
      */
     _getWidthOfChar: function(ctx, _char, lineIndex, charIndex) {
+      if (this.textAlign === 'justify' && /\s/.test(_char)) {
+        return this._getWidthOfSpace(ctx, lineIndex);
+      }
+
       var styleDeclaration = this._getStyleDeclaration(lineIndex, charIndex);
       this._applyFontStyles(styleDeclaration);
       var cacheProp = this._getCacheProp(_char, styleDeclaration);
@@ -1018,6 +1047,43 @@
     /**
      * @private
      * @param {CanvasRenderingContext2D} ctx Context to render on
+     * @param {Number} lineIndex
+     */
+    _getWidthOfSpace: function (ctx, lineIndex) {
+      var lines = this.text.split(this._reNewline),
+          line = lines[lineIndex],
+          words = line.split(/\s+/),
+          wordsWidth = this._getWidthOfWords(ctx, line, lineIndex),
+          widthDiff = this.width - wordsWidth,
+          numSpaces = words.length - 1,
+          width = widthDiff / numSpaces;
+
+      return width;
+    },
+
+    /**
+     * @private
+     * @param {CanvasRenderingContext2D} ctx Context to render on
+     * @param {Number} line
+     * @param {Number} lineIndex
+     */
+    _getWidthOfWords: function (ctx, line, lineIndex) {
+      var width = 0;
+
+      for (var charIndex = 0; charIndex < line.length; charIndex++) {
+        var _char = line[charIndex];
+
+        if (!_char.match(/\s/)) {
+          width += this._getWidthOfChar(ctx, _char, lineIndex, charIndex);
+        }
+      }
+
+      return width;
+    },
+
+    /**
+     * @private
+     * @param {CanvasRenderingContext2D} ctx Context to render on
      */
     _getTextWidth: function(ctx, textLines) {
 
@@ -1061,6 +1127,7 @@
     /**
      * @private
      * @param {CanvasRenderingContext2D} ctx Context to render on
+     * @param {Array} textLines Array of all text lines
      */
     _getTextHeight: function(ctx, textLines) {
       var height = 0;
@@ -1072,7 +1139,6 @@
 
     /**
      * @private
-     * @param {CanvasRenderingContext2D} ctx Context to render on
      */
     _getTopOffset: function() {
       var topOffset = fabric.Text.prototype._getTopOffset.call(this);
@@ -1080,11 +1146,13 @@
     },
 
     /**
-     * @private
      * This method is overwritten to account for different top offset
+     * @private
      */
     _renderTextBoxBackground: function(ctx) {
-      if (!this.backgroundColor) return;
+      if (!this.backgroundColor) {
+        return;
+      }
 
       ctx.save();
       ctx.fillStyle = this.backgroundColor;
@@ -1101,7 +1169,7 @@
 
     /**
      * Returns object representation of an instance
-     * @methd toObject
+     * @method toObject
      * @param {Array} [propertiesToInclude] Any properties that you might want to additionally include in the output
      * @return {Object} object representation of an instance
      */

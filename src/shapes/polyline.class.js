@@ -2,8 +2,7 @@
 
   'use strict';
 
-  var fabric = global.fabric || (global.fabric = { }),
-      toFixed = fabric.util.toFixed;
+  var fabric = global.fabric || (global.fabric = { });
 
   if (fabric.Polyline) {
     fabric.warn('fabric.Polyline is already defined');
@@ -33,6 +32,20 @@
     points: null,
 
     /**
+     * Minimum X from points values, necessary to offset points
+     * @type Number
+     * @default
+     */
+    minX: 0,
+
+    /**
+     * Minimum Y from points values, necessary to offset points
+     * @type Number
+     * @default
+     */
+    minY: 0,
+
+    /**
      * Constructor
      * @param {Array} points Array of points (where each point is an object with x and y)
      * @param {Object} [options] Options object
@@ -52,19 +65,22 @@
      *   top: 100
      * });
      */
-    initialize: function(points, options, skipOffset) {
-      options = options || { };
-      this.set('points', points);
-      this.callSuper('initialize', options);
-      this._calcDimensions(skipOffset);
+    initialize: function(points, options) {
+      return fabric.Polygon.prototype.initialize.call(this, points, options);
     },
 
     /**
      * @private
-     * @param {Boolean} [skipOffset] Whether points offsetting should be skipped
      */
-    _calcDimensions: function(skipOffset) {
-      return fabric.Polygon.prototype._calcDimensions.call(this, skipOffset);
+    _calcDimensions: function() {
+      return fabric.Polygon.prototype._calcDimensions.call(this);
+    },
+
+    /**
+     * @private
+     */
+    _applyPointOffset: function() {
+      return fabric.Polygon.prototype._applyPointOffset.call(this);
     },
 
     /**
@@ -83,22 +99,7 @@
      * @return {String} svg representation of an instance
      */
     toSVG: function(reviver) {
-      var points = [],
-          markup = this._createBaseSVGMarkup();
-
-      for (var i = 0, len = this.points.length; i < len; i++) {
-        points.push(toFixed(this.points[i].x, 2), ',', toFixed(this.points[i].y, 2), ' ');
-      }
-
-      markup.push(
-        '<polyline ',
-          'points="', points.join(''),
-          '" style="', this.getSvgStyles(),
-          '" transform="', this.getSvgTransform(),
-        '"/>'
-      );
-
-      return reviver ? reviver(markup.join('')) : markup.join('');
+      return fabric.Polygon.prototype.toSVG.call(this, reviver);
     },
     /* _TO_SVG_END_ */
 
@@ -107,14 +108,7 @@
      * @param {CanvasRenderingContext2D} ctx Context to render on
      */
     _render: function(ctx) {
-      var point;
-      ctx.beginPath();
-      ctx.moveTo(this.points[0].x, this.points[0].y);
-      for (var i = 0, len = this.points.length; i < len; i++) {
-        point = this.points[i];
-        ctx.lineTo(point.x, point.y);
-      }
-
+      fabric.Polygon.prototype.commonRender.call(this, ctx);
       this._renderFill(ctx);
       this._renderStroke(ctx);
     },
@@ -169,9 +163,11 @@
     var points = fabric.parsePointsAttribute(element.getAttribute('points')),
         parsedAttributes = fabric.parseAttributes(element, fabric.Polyline.ATTRIBUTE_NAMES);
 
-    fabric.util.normalizePoints(points, options);
+    if (points === null) {
+      return null;
+    }
 
-    return new fabric.Polyline(points, fabric.util.object.extend(parsedAttributes, options), true);
+    return new fabric.Polyline(points, fabric.util.object.extend(parsedAttributes, options));
   };
   /* _FROM_SVG_END_ */
 
@@ -179,7 +175,7 @@
    * Returns fabric.Polyline instance from an object representation
    * @static
    * @memberOf fabric.Polyline
-   * @param object {Object} object Object to create an instance from
+   * @param {Object} object Object to create an instance from
    * @return {fabric.Polyline} Instance of fabric.Polyline
    */
   fabric.Polyline.fromObject = function(object) {

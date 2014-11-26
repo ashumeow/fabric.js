@@ -1,4 +1,4 @@
-(function(global){
+(function(global) {
 
   'use strict';
 
@@ -58,15 +58,22 @@
       this.originalState = { };
       this.callSuper('initialize');
 
+      if (options.originX) {
+        this.originX = options.originX;
+      }
+
+      if (options.originY) {
+        this.originY = options.originY;
+      }
+
       this._calcBounds();
       this._updateObjectsCoords();
 
       if (options) {
         extend(this, options);
       }
-      this._setOpacityIfSame();
 
-      this.setCoords(true);
+      this.setCoords();
       this.saveCoords();
     },
 
@@ -82,13 +89,14 @@
      */
     _updateObjectCoords: function(object) {
       var objectLeft = object.getLeft(),
-          objectTop = object.getTop();
+          objectTop = object.getTop(),
+          center = this.getCenterPoint();
 
       object.set({
         originalLeft: objectLeft,
         originalTop: objectTop,
-        left: objectLeft - this.left,
-        top: objectTop - this.top
+        left: objectLeft - center.x,
+        top: objectTop - center.y
       });
 
       object.setCoords();
@@ -114,8 +122,10 @@
      */
     addWithUpdate: function(object) {
       this._restoreObjectsState();
-      this._objects.push(object);
-      object.group = this;
+      if (object) {
+        this._objects.push(object);
+        object.group = this;
+      }
       // since _restoreObjectsState set objects inactive
       this.forEachObject(this._setObjectActive, this);
       this._calcBounds();
@@ -213,15 +223,14 @@
     /**
      * Renders instance on a given context
      * @param {CanvasRenderingContext2D} ctx context to render instance on
-     * @param {Boolean} [noTransform] When true, context is not transformed
      */
-    render: function(ctx, noTransform) {
+    render: function(ctx) {
       // do not render if object is not visible
-      if (!this.visible) return;
+      if (!this.visible) {
+        return;
+      }
 
       ctx.save();
-      this.transform(ctx);
-
       this.clipTo && fabric.util.clipContext(this, ctx);
 
       // the array is now sorted in order of highest first, so start from end
@@ -231,31 +240,36 @@
 
       this.clipTo && ctx.restore();
 
-      if (!noTransform && this.active) {
-        this.drawBorders(ctx);
-        this.drawControls(ctx);
-      }
       ctx.restore();
+    },
+
+    /**
+     * Renders controls and borders for the object
+     * @param {CanvasRenderingContext2D} ctx Context to render on
+     * @param {Boolean} [noTransform] When true, context is not transformed
+     */
+    _renderControls: function(ctx, noTransform) {
+      this.callSuper('_renderControls', ctx, noTransform);
+      for (var i = 0, len = this._objects.length; i < len; i++) {
+        this._objects[i]._renderControls(ctx);
+      }
     },
 
     /**
      * @private
      */
     _renderObject: function(object, ctx) {
-
-      var originalScaleFactor = object.borderScaleFactor,
-          originalHasRotatingPoint = object.hasRotatingPoint,
-          groupScaleFactor = Math.max(this.scaleX, this.scaleY);
+      var originalHasRotatingPoint = object.hasRotatingPoint;
 
       // do not render if object is not visible
-      if (!object.visible) return;
+      if (!object.visible) {
+        return;
+      }
 
-      object.borderScaleFactor = groupScaleFactor;
       object.hasRotatingPoint = false;
 
       object.render(ctx);
 
-      object.borderScaleFactor = originalScaleFactor;
       object.hasRotatingPoint = originalHasRotatingPoint;
     },
 
@@ -341,14 +355,13 @@
      * @private
      */
     _setObjectPosition: function(object) {
-      var groupLeft = this.getLeft(),
-          groupTop = this.getTop(),
+      var center = this.getCenterPoint(),
           rotated = this._getRotatedLeftTop(object);
 
       object.set({
         angle: object.getAngle() + this.getAngle(),
-        left: groupLeft + rotated.left,
-        top: groupTop + rotated.top,
+        left: center.x + rotated.left,
+        top: center.y + rotated.top,
         scaleX: object.get('scaleX') * this.get('scaleX'),
         scaleY: object.get('scaleY') * this.get('scaleY')
       });
@@ -414,21 +427,6 @@
     /**
      * @private
      */
-    _setOpacityIfSame: function() {
-      var objects = this.getObjects(),
-          firstValue = objects[0] ? objects[0].get('opacity') : 1,
-          isSameOpacity = objects.every(function(o) {
-            return o.get('opacity') === firstValue;
-          });
-
-      if (isSameOpacity) {
-        this.opacity = firstValue;
-      }
-    },
-
-    /**
-     * @private
-     */
     _calcBounds: function(onlyWidthHeight) {
       var aX = [],
           aY = [],
@@ -450,20 +448,29 @@
      * @private
      */
     _getBounds: function(aX, aY, onlyWidthHeight) {
-      var minX = min(aX),
-          maxX = max(aX),
-          minY = min(aY),
-          maxY = max(aY),
-          width = (maxX - minX) || 0,
-          height = (maxY - minY) || 0,
-          obj =  {
-            width: width,
-            height: height
+      var ivt = fabric.util.invertTransform(this.getViewportTransform()),
+          minXY = fabric.util.transformPoint(new fabric.Point(min(aX), min(aY)), ivt),
+          maxXY = fabric.util.transformPoint(new fabric.Point(max(aX), max(aY)), ivt),
+          obj = {
+            width: (maxXY.x - minXY.x) || 0,
+            height: (maxXY.y - minXY.y) || 0
           };
 
       if (!onlyWidthHeight) {
-        obj.left = (minX + width / 2) || 0;
-        obj.top = (minY + height / 2) || 0;
+        obj.left = minXY.x || 0;
+        obj.top = minXY.y || 0;
+        if (this.originX === 'center') {
+          obj.left += obj.width / 2;
+        }
+        if (this.originX === 'right') {
+          obj.left += obj.width;
+        }
+        if (this.originY === 'center') {
+          obj.top += obj.height / 2;
+        }
+        if (this.originY === 'bottom') {
+          obj.top += obj.height;
+        }
       }
       return obj;
     },
@@ -476,16 +483,18 @@
      */
     toSVG: function(reviver) {
       var markup = [
+        //jscs:disable validateIndentation
         '<g ',
           'transform="', this.getSvgTransform(),
-        '">'
+        '">\n'
+        //jscs:enable validateIndentation
       ];
 
       for (var i = 0, len = this._objects.length; i < len; i++) {
         markup.push(this._objects[i].toSVG(reviver));
       }
 
-      markup.push('</g>');
+      markup.push('</g>\n');
 
       return reviver ? reviver(markup.join('')) : markup.join('');
     },
@@ -524,7 +533,7 @@
    * @static
    * @memberOf fabric.Group
    * @param {Object} object Object to create a group from
-   * @param {Object} [options] Options object
+   * @param {Function} [callback] Callback to invoke when an group instance is created
    * @return {fabric.Group} An instance of fabric.Group
    */
   fabric.Group.fromObject = function(object, callback) {

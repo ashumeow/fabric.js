@@ -458,10 +458,19 @@
 
     /**
      * Fill rule used to fill an object
+     * accepted values are nonzero, evenodd
+     * <b>Backwards incompatibility note:</b> This property was used for setting globalCompositeOperation until v1.4.12 (use `fabric.Object#globalCompositeOperation` instead)
      * @type String
      * @default
      */
-    fillRule:                 'source-over',
+    fillRule:                 'nonzero',
+
+    /**
+     * Composite rule used for canvas globalCompositeOperation
+     * @type String
+     * @default
+     */
+    globalCompositeOperation: 'source-over',
 
     /**
      * Background color of an object. Only works with text objects at the moment.
@@ -659,6 +668,13 @@
     lockUniScaling:           false,
 
     /**
+     * When `true`, object cannot be flipped by scaling into negative values
+     * @type Boolean
+     * @default
+     */
+
+    lockScalingFlip:          false,
+    /**
      * List of properties to consider when checking if state
      * of an object is changed (fabric.Object#hasStateChanged)
      * as well as for history (undo/redo) purposes
@@ -667,7 +683,7 @@
     stateProperties:  (
       'top left width height scaleX scaleY flipX flipY originX originY transformMatrix ' +
       'stroke strokeWidth strokeDashArray strokeLineCap strokeLineJoin strokeMiterLimit ' +
-      'angle opacity fill fillRule shadow clipTo visible backgroundColor'
+      'angle opacity fill fillRule globalCompositeOperation shadow clipTo visible backgroundColor'
     ).split(' '),
 
     /**
@@ -682,6 +698,7 @@
 
     /**
      * @private
+     * @param {Object} [options] Options object
      */
     _initGradient: function(options) {
       if (options.fill && options.fill.colorStops && !(options.fill instanceof fabric.Gradient)) {
@@ -691,6 +708,7 @@
 
     /**
      * @private
+     * @param {Object} [options] Options object
      */
     _initPattern: function(options) {
       if (options.fill && options.fill.source && !(options.fill instanceof fabric.Pattern)) {
@@ -703,9 +721,12 @@
 
     /**
      * @private
+     * @param {Object} [options] Options object
      */
     _initClipping: function(options) {
-      if (!options.clipTo || typeof options.clipTo !== 'string') return;
+      if (!options.clipTo || typeof options.clipTo !== 'string') {
+        return;
+      }
 
       var functionBody = fabric.util.getFunctionBody(options.clipTo);
       if (typeof functionBody !== 'undefined') {
@@ -732,8 +753,9 @@
      * @param {Boolean} fromLeft When true, context is transformed to object's top/left corner. This is used when rendering text on Node
      */
     transform: function(ctx, fromLeft) {
-      ctx.globalAlpha = this.opacity;
-
+      if (this.group) {
+        this.group.transform(ctx, fromLeft);
+      }
       var center = fromLeft ? this._getLeftTopCoords() : this.getCenterPoint();
       ctx.translate(center.x, center.y);
       ctx.rotate(degreesToRadians(this.angle));
@@ -749,34 +771,35 @@
      * @return {Object} Object representation of an instance
      */
     toObject: function(propertiesToInclude) {
-
       var NUM_FRACTION_DIGITS = fabric.Object.NUM_FRACTION_DIGITS,
 
           object = {
-            type:               this.type,
-            originX:            this.originX,
-            originY:            this.originY,
-            left:               toFixed(this.left, NUM_FRACTION_DIGITS),
-            top:                toFixed(this.top, NUM_FRACTION_DIGITS),
-            width:              toFixed(this.width, NUM_FRACTION_DIGITS),
-            height:             toFixed(this.height, NUM_FRACTION_DIGITS),
-            fill:               (this.fill && this.fill.toObject) ? this.fill.toObject() : this.fill,
-            stroke:             (this.stroke && this.stroke.toObject) ? this.stroke.toObject() : this.stroke,
-            strokeWidth:        toFixed(this.strokeWidth, NUM_FRACTION_DIGITS),
-            strokeDashArray:    this.strokeDashArray,
-            strokeLineCap:      this.strokeLineCap,
-            strokeLineJoin:     this.strokeLineJoin,
-            strokeMiterLimit:   toFixed(this.strokeMiterLimit, NUM_FRACTION_DIGITS),
-            scaleX:             toFixed(this.scaleX, NUM_FRACTION_DIGITS),
-            scaleY:             toFixed(this.scaleY, NUM_FRACTION_DIGITS),
-            angle:              toFixed(this.getAngle(), NUM_FRACTION_DIGITS),
-            flipX:              this.flipX,
-            flipY:              this.flipY,
-            opacity:            toFixed(this.opacity, NUM_FRACTION_DIGITS),
-            shadow:             (this.shadow && this.shadow.toObject) ? this.shadow.toObject() : this.shadow,
-            visible:            this.visible,
-            clipTo:             this.clipTo && String(this.clipTo),
-            backgroundColor:    this.backgroundColor
+            type:                     this.type,
+            originX:                  this.originX,
+            originY:                  this.originY,
+            left:                     toFixed(this.left, NUM_FRACTION_DIGITS),
+            top:                      toFixed(this.top, NUM_FRACTION_DIGITS),
+            width:                    toFixed(this.width, NUM_FRACTION_DIGITS),
+            height:                   toFixed(this.height, NUM_FRACTION_DIGITS),
+            fill:                     (this.fill && this.fill.toObject) ? this.fill.toObject() : this.fill,
+            stroke:                   (this.stroke && this.stroke.toObject) ? this.stroke.toObject() : this.stroke,
+            strokeWidth:              toFixed(this.strokeWidth, NUM_FRACTION_DIGITS),
+            strokeDashArray:          this.strokeDashArray,
+            strokeLineCap:            this.strokeLineCap,
+            strokeLineJoin:           this.strokeLineJoin,
+            strokeMiterLimit:         toFixed(this.strokeMiterLimit, NUM_FRACTION_DIGITS),
+            scaleX:                   toFixed(this.scaleX, NUM_FRACTION_DIGITS),
+            scaleY:                   toFixed(this.scaleY, NUM_FRACTION_DIGITS),
+            angle:                    toFixed(this.getAngle(), NUM_FRACTION_DIGITS),
+            flipX:                    this.flipX,
+            flipY:                    this.flipY,
+            opacity:                  toFixed(this.opacity, NUM_FRACTION_DIGITS),
+            shadow:                   (this.shadow && this.shadow.toObject) ? this.shadow.toObject() : this.shadow,
+            visible:                  this.visible,
+            clipTo:                   this.clipTo && String(this.clipTo),
+            backgroundColor:          this.backgroundColor,
+            fillRule:                 this.fillRule,
+            globalCompositeOperation: this.globalCompositeOperation
           };
 
       if (!this.includeDefaultValues) {
@@ -921,53 +944,63 @@
     },
 
     /**
+     * Retrieves viewportTransform from Object's canvas if possible
+     * @method getViewportTransform
+     * @memberOf fabric.Object.prototype
+     * @return {Boolean} flipY value // TODO
+     */
+    getViewportTransform: function() {
+      if (this.canvas && this.canvas.viewportTransform) {
+        return this.canvas.viewportTransform;
+      }
+      return [1, 0, 0, 1, 0, 0];
+    },
+
+    /**
      * Renders an object on a specified context
      * @param {CanvasRenderingContext2D} ctx Context to render on
      * @param {Boolean} [noTransform] When true, context is not transformed
      */
     render: function(ctx, noTransform) {
       // do not render if width/height are zeros or object is not visible
-      if (this.width === 0 || this.height === 0 || !this.visible) return;
+      if ((this.width === 0 && this.height === 0) || !this.visible) {
+        return;
+      }
 
       ctx.save();
 
       //setup fill rule for current object
-      this._setupFillRule(ctx);
-
-      this._transform(ctx, noTransform);
+      this._setupCompositeOperation(ctx);
+      if (!noTransform) {
+        this.transform(ctx);
+      }
       this._setStrokeStyles(ctx);
       this._setFillStyles(ctx);
-
-      var m = this.transformMatrix;
-      if (m && this.group) {
+      if (this.group && this.group.type === 'path-group') {
         ctx.translate(-this.group.width/2, -this.group.height/2);
-        ctx.transform(m[0], m[1], m[2], m[3], m[4], m[5]);
       }
-
+      if (this.transformMatrix) {
+        ctx.transform.apply(ctx, this.transformMatrix);
+      }
+      this._setOpacity(ctx);
       this._setShadow(ctx);
       this.clipTo && fabric.util.clipContext(this, ctx);
       this._render(ctx, noTransform);
       this.clipTo && ctx.restore();
       this._removeShadow(ctx);
-
-      this._restoreFillRule(ctx);
-
-      if (this.active && !noTransform) {
-        this.drawBorders(ctx);
-        this.drawControls(ctx);
-      }
+      this._restoreCompositeOperation(ctx);
 
       ctx.restore();
     },
 
-    _transform: function(ctx, noTransform) {
-      var m = this.transformMatrix;
-      if (m && !this.group) {
-        ctx.setTransform(m[0], m[1], m[2], m[3], m[4], m[5]);
+    /* @private
+     * @param {CanvasRenderingContext2D} ctx Context to render on
+     */
+    _setOpacity: function(ctx) {
+      if (this.group) {
+        this.group._setOpacity(ctx);
       }
-      if (!noTransform) {
-        this.transform(ctx);
-      }
+      ctx.globalAlpha *= this.opacity;
     },
 
     _setStrokeStyles: function(ctx) {
@@ -977,7 +1010,7 @@
         ctx.lineJoin = this.strokeLineJoin;
         ctx.miterLimit = this.strokeMiterLimit;
         ctx.strokeStyle = this.stroke.toLive
-          ? this.stroke.toLive(ctx)
+          ? this.stroke.toLive(ctx, this)
           : this.stroke;
       }
     },
@@ -985,9 +1018,38 @@
     _setFillStyles: function(ctx) {
       if (this.fill) {
         ctx.fillStyle = this.fill.toLive
-          ? this.fill.toLive(ctx)
+          ? this.fill.toLive(ctx, this)
           : this.fill;
       }
+    },
+
+    /**
+     * Renders controls and borders for the object
+     * @param {CanvasRenderingContext2D} ctx Context to render on
+     * @param {Boolean} [noTransform] When true, context is not transformed
+     */
+    _renderControls: function(ctx, noTransform) {
+      var vpt = this.getViewportTransform();
+
+      ctx.save();
+      if (this.active && !noTransform) {
+        var center;
+        if (this.group) {
+          center = fabric.util.transformPoint(this.group.getCenterPoint(), vpt);
+          ctx.translate(center.x, center.y);
+          ctx.rotate(degreesToRadians(this.group.angle));
+        }
+        center = fabric.util.transformPoint(this.getCenterPoint(), vpt, null != this.group);
+        if (this.group) {
+          center.x *= this.group.scaleX;
+          center.y *= this.group.scaleY;
+        }
+        ctx.translate(center.x, center.y);
+        ctx.rotate(degreesToRadians(this.angle));
+        this.drawBorders(ctx);
+        this.drawControls(ctx);
+      }
+      ctx.restore();
     },
 
     /**
@@ -995,12 +1057,16 @@
      * @param {CanvasRenderingContext2D} ctx Context to render on
      */
     _setShadow: function(ctx) {
-      if (!this.shadow) return;
+      if (!this.shadow) {
+        return;
+      }
+
+      var mult = (this.canvas && this.canvas._currentMultiplier) || 1;
 
       ctx.shadowColor = this.shadow.color;
-      ctx.shadowBlur = this.shadow.blur;
-      ctx.shadowOffsetX = this.shadow.offsetX;
-      ctx.shadowOffsetY = this.shadow.offsetY;
+      ctx.shadowBlur = this.shadow.blur * mult * (this.scaleX + this.scaleY) / 2;
+      ctx.shadowOffsetX = this.shadow.offsetX * mult * this.scaleX;
+      ctx.shadowOffsetY = this.shadow.offsetY * mult * this.scaleY;
     },
 
     /**
@@ -1008,7 +1074,9 @@
      * @param {CanvasRenderingContext2D} ctx Context to render on
      */
     _removeShadow: function(ctx) {
-      if (!this.shadow) return;
+      if (!this.shadow) {
+        return;
+      }
 
       ctx.shadowColor = '';
       ctx.shadowBlur = ctx.shadowOffsetX = ctx.shadowOffsetY = 0;
@@ -1019,23 +1087,27 @@
      * @param {CanvasRenderingContext2D} ctx Context to render on
      */
     _renderFill: function(ctx) {
-      if (!this.fill) return;
+      if (!this.fill) {
+        return;
+      }
 
+      ctx.save();
+      if (this.fill.gradientTransform) {
+        var g = this.fill.gradientTransform;
+        ctx.transform.apply(ctx, g);
+      }
       if (this.fill.toLive) {
-        ctx.save();
         ctx.translate(
           -this.width / 2 + this.fill.offsetX || 0,
           -this.height / 2 + this.fill.offsetY || 0);
       }
-      if (this.fillRule === 'destination-over') {
+      if (this.fillRule === 'evenodd') {
         ctx.fill('evenodd');
       }
       else {
         ctx.fill();
       }
-      if (this.fill.toLive) {
-        ctx.restore();
-      }
+      ctx.restore();
       if (this.shadow && !this.shadow.affectStroke) {
         this._removeShadow(ctx);
       }
@@ -1046,7 +1118,9 @@
      * @param {CanvasRenderingContext2D} ctx Context to render on
      */
     _renderStroke: function(ctx) {
-      if (!this.stroke) return;
+      if (!this.stroke || this.strokeWidth === 0) {
+        return;
+      }
 
       ctx.save();
       if (this.strokeDashArray) {
@@ -1054,7 +1128,6 @@
         if (1 & this.strokeDashArray.length) {
           this.strokeDashArray.push.apply(this.strokeDashArray, this.strokeDashArray);
         }
-
         if (supportsLineDash) {
           ctx.setLineDash(this.strokeDashArray);
           this._stroke && this._stroke(ctx);
@@ -1065,6 +1138,10 @@
         ctx.stroke();
       }
       else {
+        if (this.stroke.gradientTransform) {
+          var g = this.stroke.gradientTransform;
+          ctx.transform.apply(ctx, g);
+        }
         this._stroke ? this._stroke(ctx) : ctx.stroke();
       }
       this._removeShadow(ctx);
@@ -1086,7 +1163,7 @@
 
     /**
      * Creates an instance of fabric.Image out of an object
-     * @param callback {Function} callback, invoked with an instance as a first argument
+     * @param {Function} callback callback, invoked with an instance as a first argument
      * @return {fabric.Object} thisArg
      */
     cloneAsImage: function(callback) {
@@ -1156,7 +1233,7 @@
 
     /**
      * Returns true if specified type is identical to the type of an instance
-     * @param type {String} type Type to check against
+     * @param {String} type Type to check against
      * @return {Boolean}
      */
     isType: function(type) {
@@ -1304,7 +1381,7 @@
      * canvas.renderAll();
      */
     setShadow: function(options) {
-      return this.set('shadow', new fabric.Shadow(options));
+      return this.set('shadow', options ? new fabric.Shadow(options) : null);
     },
 
     /**
@@ -1400,13 +1477,13 @@
 
     /**
      * Sets canvas globalCompositeOperation for specific object
-     * custom composition operation for the particular object can be specifed using fillRule property
+     * custom composition operation for the particular object can be specifed using globalCompositeOperation property
      * @param {CanvasRenderingContext2D} ctx Rendering canvas context
      */
-    _setupFillRule: function (ctx) {
-      if (this.fillRule) {
-        this._prevFillRule = ctx.globalCompositeOperation;
-        ctx.globalCompositeOperation = this.fillRule;
+    _setupCompositeOperation: function (ctx) {
+      if (this.globalCompositeOperation) {
+        this._prevGlobalCompositeOperation = ctx.globalCompositeOperation;
+        ctx.globalCompositeOperation = this.globalCompositeOperation;
       }
     },
 
@@ -1414,9 +1491,9 @@
      * Restores previously saved canvas globalCompositeOperation after obeject rendering
      * @param {CanvasRenderingContext2D} ctx Rendering canvas context
      */
-    _restoreFillRule: function (ctx) {
-      if (this.fillRule && this._prevFillRule) {
-        ctx.globalCompositeOperation = this._prevFillRule;
+    _restoreCompositeOperation: function (ctx) {
+      if (this.globalCompositeOperation && this._prevGlobalCompositeOperation) {
+        ctx.globalCompositeOperation = this._prevGlobalCompositeOperation;
       }
     }
   });

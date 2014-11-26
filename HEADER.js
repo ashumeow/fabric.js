@@ -1,6 +1,6 @@
 /*! Fabric.js Copyright 2008-2014, Printio (Juriy Zaytsev, Maxim Chernyak) */
 
-var fabric = fabric || { version: "1.4.6" };
+var fabric = fabric || { version: "1.4.12" };
 if (typeof exports !== 'undefined') {
   exports.fabric = fabric;
 }
@@ -14,7 +14,11 @@ else {
   fabric.document = require("jsdom")
     .jsdom("<!DOCTYPE html><html><head></head><body></body></html>");
 
-  fabric.window = fabric.document.createWindow();
+  if (fabric.document.createWindow) {
+    fabric.window = fabric.document.createWindow();
+  } else {
+    fabric.window = fabric.document.parentWindow;
+  }
 }
 
 /**
@@ -30,7 +34,6 @@ fabric.isTouchSupported = "ontouchstart" in fabric.document.documentElement;
 fabric.isLikelyNode = typeof Buffer !== 'undefined' &&
                       typeof window === 'undefined';
 
-
 /**
  * Attributes parsed from all SVG elements
  * @type array
@@ -44,3 +47,9 @@ fabric.SHARED_ATTRIBUTES = [
   "stroke-linejoin", "stroke-miterlimit",
   "stroke-opacity", "stroke-width"
 ];
+
+/**
+ * Pixel per Inch as a default value set to 96. Can be changed for more realistic conversion.
+ */
+fabric.DPI = 96;
+fabric.reNum = '(?:[-+]?(?:\\d+|\\d*\\.\\d+)(?:e[-+]?\\d+)?)';

@@ -72,15 +72,17 @@
      */
     render: function(ctx) {
       // do not render if object is not visible
-      if (!this.visible) return;
+      if (!this.visible) {
+        return;
+      }
 
       ctx.save();
 
       var m = this.transformMatrix;
+
       if (m) {
         ctx.transform(m[0], m[1], m[2], m[3], m[4], m[5]);
       }
-
       this.transform(ctx);
 
       this._setShadow(ctx);
@@ -90,11 +92,6 @@
       }
       this.clipTo && ctx.restore();
       this._removeShadow(ctx);
-
-      if (this.active) {
-        this.drawBorders(ctx);
-        this.drawControls(ctx);
-      }
       ctx.restore();
     },
 
@@ -152,17 +149,20 @@
      */
     toSVG: function(reviver) {
       var objects = this.getObjects(),
+          translatePart = 'translate(' + this.left + ' ' + this.top + ')',
           markup = [
+            //jscs:disable validateIndentation
             '<g ',
               'style="', this.getSvgStyles(), '" ',
-              'transform="', this.getSvgTransform(), '" ',
-            '>'
+              'transform="', translatePart, this.getSvgTransform(), '" ',
+            '>\n'
+            //jscs:enable validateIndentation
           ];
 
       for (var i = 0, len = objects.length; i < len; i++) {
         markup.push(objects[i].toSVG(reviver));
       }
-      markup.push('</g>');
+      markup.push('</g>\n');
 
       return reviver ? reviver(markup.join('')) : markup.join('');
     },
